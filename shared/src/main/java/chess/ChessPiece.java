@@ -1,5 +1,6 @@
 package chess;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Collection;
 import java.util.Objects;
@@ -53,7 +54,49 @@ public class ChessPiece {
      * @return Collection of valid moves
      */
     public Collection<ChessMove> pieceMoves(ChessBoard board, ChessPosition myPosition) {
+        if (type == PieceType.KNIGHT) {
+            return knightMoves(board, myPosition);
+        }
         return Collections.emptyList();
+    }
+
+    private Collection<ChessMove> knightMoves(ChessBoard board, ChessPosition myPosition) {
+        int[][] offsets = {
+                {2, 1},
+                {1, 2},
+                {-1, 2},
+                {-2, 1},
+                {-2, -1},
+                {-1, -2},
+                {1, -2},
+                {2, -1}
+        };
+        Collection<ChessMove> moves = new ArrayList<>();
+
+        for (int[] offset : offsets) {
+            addMoveIfAvailable(board, myPosition, moves,
+                    myPosition.getRow() + offset[0],
+                    myPosition.getColumn() + offset[1]);
+        }
+
+        return moves;
+    }
+
+    private void addMoveIfAvailable(ChessBoard board, ChessPosition startPosition,
+                                    Collection<ChessMove> moves, int row, int column) {
+        if (!isOnBoard(row, column)) {
+            return;
+        }
+
+        ChessPosition endPosition = new ChessPosition(row, column);
+        ChessPiece destinationPiece = board.getPiece(endPosition);
+        if (destinationPiece == null || destinationPiece.getTeamColor() != pieceColor) {
+            moves.add(new ChessMove(startPosition, endPosition, null));
+        }
+    }
+
+    private boolean isOnBoard(int row, int column) {
+        return row >= 1 && row <= 8 && column >= 1 && column <= 8;
     }
 
     @Override
