@@ -12,6 +12,13 @@ import java.util.Objects;
  * signature of the existing methods.
  */
 public class ChessPiece {
+    private static final int[][] ROOK_DIRECTIONS = {
+            {1, 0},
+            {0, 1},
+            {-1, 0},
+            {0, -1}
+    };
+
     private final ChessGame.TeamColor pieceColor;
     private final PieceType type;
 
@@ -57,6 +64,9 @@ public class ChessPiece {
         if (type == PieceType.KNIGHT) {
             return knightMoves(board, myPosition);
         }
+        if (type == PieceType.ROOK) {
+            return slidingMoves(board, myPosition, ROOK_DIRECTIONS);
+        }
         return Collections.emptyList();
     }
 
@@ -77,6 +87,33 @@ public class ChessPiece {
             addMoveIfAvailable(board, myPosition, moves,
                     myPosition.getRow() + offset[0],
                     myPosition.getColumn() + offset[1]);
+        }
+
+        return moves;
+    }
+
+    private Collection<ChessMove> slidingMoves(ChessBoard board, ChessPosition myPosition, int[][] directions) {
+        Collection<ChessMove> moves = new ArrayList<>();
+
+        for (int[] direction : directions) {
+            int row = myPosition.getRow() + direction[0];
+            int column = myPosition.getColumn() + direction[1];
+
+            while (isOnBoard(row, column)) {
+                ChessPosition endPosition = new ChessPosition(row, column);
+                ChessPiece destinationPiece = board.getPiece(endPosition);
+                if (destinationPiece == null) {
+                    moves.add(new ChessMove(myPosition, endPosition, null));
+                } else {
+                    if (destinationPiece.getTeamColor() != pieceColor) {
+                        moves.add(new ChessMove(myPosition, endPosition, null));
+                    }
+                    break;
+                }
+
+                row += direction[0];
+                column += direction[1];
+            }
         }
 
         return moves;
