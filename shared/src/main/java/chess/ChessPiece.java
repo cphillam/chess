@@ -102,6 +102,9 @@ public class ChessPiece {
         if (type == PieceType.KING) {
             return kingMoves(board, myPosition);
         }
+        if (type == PieceType.PAWN) {
+            return pawnMoves(board, myPosition);
+        }
         return Collections.emptyList();
     }
 
@@ -161,6 +164,34 @@ public class ChessPiece {
             addMoveIfAvailable(board, myPosition, moves,
                     myPosition.getRow() + offset[0],
                     myPosition.getColumn() + offset[1]);
+        }
+
+        return moves;
+    }
+
+    private Collection<ChessMove> pawnMoves(ChessBoard board, ChessPosition myPosition) {
+        Collection<ChessMove> moves = new ArrayList<>();
+        int direction = pieceColor == ChessGame.TeamColor.WHITE ? 1 : -1;
+        int startRow = pieceColor == ChessGame.TeamColor.WHITE ? 2 : 7;
+
+        int oneStepRow = myPosition.getRow() + direction;
+        int col = myPosition.getColumn();
+
+        if (isOnBoard(oneStepRow, col)) {
+            ChessPosition oneStepPos = new ChessPosition(oneStepRow, col);
+            if (board.getPiece(oneStepPos) == null) {
+                moves.add(new ChessMove(myPosition, oneStepPos, null));
+
+                if (myPosition.getRow() == startRow) {
+                    int twoStepRow = myPosition.getRow() + (2 * direction);
+                    if (isOnBoard(twoStepRow, col)) {
+                        ChessPosition twoStepPos = new ChessPosition(twoStepRow, col);
+                        if (board.getPiece(twoStepPos) == null) {
+                            moves.add(new ChessMove(myPosition, twoStepPos, null));
+                        }
+                    }
+                }
+            }
         }
 
         return moves;
