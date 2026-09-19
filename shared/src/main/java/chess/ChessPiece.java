@@ -18,6 +18,22 @@ public class ChessPiece {
             {-1, 0},
             {0, -1}
     };
+    private static final int[][] BISHOP_DIRECTIONS = {
+            {1, 1},
+            {-1, 1},
+            {-1, -1},
+            {1, -1}
+    };
+    private static final int[][] QUEEN_DIRECTIONS = {
+            {1, 0},
+            {0, 1},
+            {-1, 0},
+            {0, -1},
+            {1, 1},
+            {-1, 1},
+            {-1, -1},
+            {1, -1}
+    };
 
     private final ChessGame.TeamColor pieceColor;
     private final PieceType type;
@@ -66,6 +82,12 @@ public class ChessPiece {
         }
         if (type == PieceType.ROOK) {
             return slidingMoves(board, myPosition, ROOK_DIRECTIONS);
+        }
+        if (type == PieceType.BISHOP) {
+            return slidingMoves(board, myPosition, BISHOP_DIRECTIONS);
+        }
+        if (type == PieceType.QUEEN) {
+            return slidingMoves(board, myPosition, QUEEN_DIRECTIONS);
         }
         return Collections.emptyList();
     }
