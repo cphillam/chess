@@ -34,6 +34,16 @@ public class ChessPiece {
             {-1, -1},
             {1, -1}
     };
+    private static final int[][] KING_OFFSETS = {
+            {1, 0},
+            {1, 1},
+            {0, 1},
+            {-1, 1},
+            {-1, 0},
+            {-1, -1},
+            {0, -1},
+            {1, -1}
+    };
 
     private final ChessGame.TeamColor pieceColor;
     private final PieceType type;
@@ -89,6 +99,9 @@ public class ChessPiece {
         if (type == PieceType.QUEEN) {
             return slidingMoves(board, myPosition, QUEEN_DIRECTIONS);
         }
+        if (type == PieceType.KING) {
+            return kingMoves(board, myPosition);
+        }
         return Collections.emptyList();
     }
 
@@ -136,6 +149,18 @@ public class ChessPiece {
                 row += direction[0];
                 column += direction[1];
             }
+        }
+
+        return moves;
+    }
+
+    private Collection<ChessMove> kingMoves(ChessBoard board, ChessPosition myPosition) {
+        Collection<ChessMove> moves = new ArrayList<>();
+
+        for (int[] offset : KING_OFFSETS) {
+            addMoveIfAvailable(board, myPosition, moves,
+                    myPosition.getRow() + offset[0],
+                    myPosition.getColumn() + offset[1]);
         }
 
         return moves;
