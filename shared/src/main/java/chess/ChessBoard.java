@@ -8,12 +8,43 @@ import java.util.Arrays;
  * Note: You can add to this class, but you may not alter
  * signature of the existing methods.
  */
-public class ChessBoard {
+public class ChessBoard implements Cloneable {
     private static final int BOARD_SIZE = 8;
     private final ChessPiece[][] pieces;
 
     public ChessBoard() {
         pieces = new ChessPiece[BOARD_SIZE][BOARD_SIZE];
+    }
+
+    /**
+     * Copy constructor for creating a deep copy of an existing chessboard.
+     *
+     * @param other the chessboard to copy
+     */
+    public ChessBoard(ChessBoard other) {
+        this.pieces = new ChessPiece[BOARD_SIZE][BOARD_SIZE];
+        for (int row = 0; row < BOARD_SIZE; row++) {
+            for (int col = 0; col < BOARD_SIZE; col++) {
+                ChessPiece piece = other.pieces[row][col];
+                if (piece != null) {
+                    this.pieces[row][col] = new ChessPiece(piece.getTeamColor(), piece.getPieceType());
+                }
+            }
+        }
+    }
+
+    /**
+     * Creates a deep copy of this chessboard.
+     *
+     * @return a new ChessBoard with identical piece placements
+     */
+    public ChessBoard copy() {
+        return new ChessBoard(this);
+    }
+
+    @Override
+    public ChessBoard clone() {
+        return new ChessBoard(this);
     }
 
     /**
