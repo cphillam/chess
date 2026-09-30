@@ -72,7 +72,62 @@ public class ChessGame {
      * @return True if the specified team is in check
      */
     public boolean isInCheck(TeamColor teamColor) {
-        throw new RuntimeException("Not implemented");
+        return isBoardInCheck(this.board, teamColor);
+    }
+
+    /**
+     * Determines if the given team is in check on the specified board
+     *
+     * @param evalBoard the board state to evaluate
+     * @param teamColor which team to check for check
+     * @return True if teamColor's king is under attack
+     */
+    private boolean isBoardInCheck(ChessBoard evalBoard, TeamColor teamColor) {
+        ChessPosition kingPosition = findKing(evalBoard, teamColor);
+        if (kingPosition == null) {
+            return false;
+        }
+
+        TeamColor opponentColor = (teamColor == TeamColor.WHITE) ? TeamColor.BLACK : TeamColor.WHITE;
+
+        for (int row = 1; row <= 8; row++) {
+            for (int col = 1; col <= 8; col++) {
+                ChessPosition piecePosition = new ChessPosition(row, col);
+                ChessPiece piece = evalBoard.getPiece(piecePosition);
+
+                if (piece != null && piece.getTeamColor() == opponentColor) {
+                    Collection<ChessMove> opponentMoves = piece.pieceMoves(evalBoard, piecePosition);
+                    if (opponentMoves != null) {
+                        for (ChessMove move : opponentMoves) {
+                            if (move.getEndPosition().equals(kingPosition)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Finds the position of the king for the given team on the specified board
+     *
+     * @param evalBoard the board to search
+     * @param teamColor the color of the king to find
+     * @return ChessPosition of the king, or null if not found
+     */
+    private ChessPosition findKing(ChessBoard evalBoard, TeamColor teamColor) {
+        for (int row = 1; row <= 8; row++) {
+            for (int col = 1; col <= 8; col++) {
+                ChessPosition pos = new ChessPosition(row, col);
+                ChessPiece piece = evalBoard.getPiece(pos);
+                if (piece != null && piece.getTeamColor() == teamColor && piece.getPieceType() == ChessPiece.PieceType.KING) {
+                    return pos;
+                }
+            }
+        }
+        return null;
     }
 
     /**
