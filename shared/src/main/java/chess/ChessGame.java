@@ -1,6 +1,8 @@
 package chess;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Objects;
 
 /**
@@ -52,7 +54,47 @@ public class ChessGame {
      * startPosition
      */
     public Collection<ChessMove> validMoves(ChessPosition startPosition) {
-        throw new RuntimeException("Not implemented");
+        if (board == null) {
+            return null;
+        }
+        ChessPiece piece = board.getPiece(startPosition);
+        if (piece == null) {
+            return null;
+        }
+
+        Collection<ChessMove> potentialMoves = piece.pieceMoves(board, startPosition);
+        if (potentialMoves == null || potentialMoves.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Collection<ChessMove> legalMoves = new ArrayList<>();
+        for (ChessMove move : potentialMoves) {
+            ChessBoard simulatedBoard = simulateMove(board, move);
+            if (!isBoardInCheck(simulatedBoard, piece.getTeamColor())) {
+                legalMoves.add(move);
+            }
+        }
+        return legalMoves;
+    }
+
+    /**
+     * Simulates executing a move on a copy of the given board
+     *
+     * @param currentBoard the board state before the move
+     * @param move the move to simulate
+     * @return a new board state reflecting the move
+     */
+    private ChessBoard simulateMove(ChessBoard currentBoard, ChessMove move) {
+        ChessBoard newBoard = new ChessBoard(currentBoard);
+        ChessPiece movingPiece = newBoard.getPiece(move.getStartPosition());
+
+        ChessPiece placedPiece = (move.getPromotionPiece() != null)
+                ? new ChessPiece(movingPiece.getTeamColor(), move.getPromotionPiece())
+                : movingPiece;
+
+        newBoard.addPiece(move.getEndPosition(), placedPiece);
+        newBoard.addPiece(move.getStartPosition(), null);
+        return newBoard;
     }
 
     /**
