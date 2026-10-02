@@ -27,4 +27,9 @@ Game logic notes:
 - isInCheckmate: returns true if the team is in check and has 0 valid moves anywhere on the board.
 - isInStalemate: returns true if the team is NOT in check but still has 0 valid moves anywhere on the board.
 
-All 107 tests pass (full game, game status, make move, valid moves, and all phase 0 tests).
+Extra Credit:
+Implemented both castling (+5) and en passant (+5).
+- Castling: track if king or rooks have moved yet. Make sure intermediate squares are clear, and king doesn't start in check, pass through check, or land in check. When the king moves 2 squares, the rook jumps to the side.
+- En passant: track last move made. If opponent pawn double moved on previous turn, adjacent friendly pawn can capture diagonally and remove the enemy pawn. Only allowed immediately on the next turn.
+
+All 119 tests pass (all base tests + 12 extra credit tests).
