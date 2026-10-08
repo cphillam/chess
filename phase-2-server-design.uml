@@ -23,7 +23,7 @@ Handler --> Server: 200 {}
 Server --> Client: 200 {}
 end
 
-group #navy Register (/user) #white
+group #cyan Register (/user) #white
 Client -> Server: POST /user\n{username, password, email}
 Server -> Handler: route /user
 Handler -> Handler: deserialize RegisterRequest
