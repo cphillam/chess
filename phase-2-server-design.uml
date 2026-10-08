@@ -1,0 +1,210 @@
+title Phase 2: Chess Server Design
+
+actor Client
+participant Server
+participant Handler
+participant Service
+participant DataAccess
+database Database
+
+note over Handler,DataAccess: Requests and results use JSON-mapped Java records. DataAccess hides the storage implementation.
+
+group #gray Clear application (/db) #white
+Client -> Server: DELETE /db
+Server -> Handler: route /db
+Handler -> Service: clear()
+Service -> DataAccess: clear()
+DataAccess -> Database: DELETE all users, auth tokens, and games
+Database --> DataAccess: success
+DataAccess --> Service: success
+Service --> Handler: ClearResult
+Handler -> Handler: serialize({})
+Handler --> Server: 200 {}
+Server --> Client: 200 {}
+end
+
+group #cyan Register (/user) #white
+Client -> Server: POST /user\n{username, password, email}
+Server -> Handler: route /user
+Handler -> Handler: deserialize RegisterRequest
+alt malformed JSON or missing fields
+Handler --> Server: 400 bad request
+Server --> Client: 400 {message}
+else valid request
+Handler -> Service: register(request)
+Service -> DataAccess: getUser(username)
+DataAccess -> Database: SELECT user by username
+Database --> DataAccess: UserData or null
+DataAccess --> Service: UserData or null
+alt username already exists
+Service --> Handler: AlreadyTakenException
+Handler --> Server: error response
+Server --> Client: 403 {message}
+else username is available
+Service -> DataAccess: createUser(UserData)
+DataAccess -> Database: INSERT UserData
+Database --> DataAccess: success
+Service -> DataAccess: createAuth(username)
+DataAccess -> Database: INSERT AuthData
+Database --> DataAccess: AuthData
+DataAccess --> Service: AuthData
+Service --> Handler: RegisterResult
+Handler -> Handler: serialize result
+Handler --> Server: 200 {username, authToken}
+Server --> Client: 200 {username, authToken}
+end
+end
+end
+
+group #orange Login (/session) #white
+Client -> Server: POST /session\n{username, password}
+Server -> Handler: route /session
+Handler -> Handler: deserialize LoginRequest
+alt malformed JSON or missing fields
+Handler --> Server: 400 bad request
+Server --> Client: 400 {message}
+else valid request
+Handler -> Service: login(request)
+Service -> DataAccess: getUser(username)
+DataAccess -> Database: SELECT user by username
+Database --> DataAccess: UserData or null
+DataAccess --> Service: UserData or null
+alt user missing or password does not match
+Service --> Handler: UnauthorizedException
+Handler --> Server: error response
+Server --> Client: 401 {message}
+else credentials are valid
+Service -> DataAccess: createAuth(username)
+DataAccess -> Database: INSERT AuthData
+Database --> DataAccess: AuthData
+DataAccess --> Service: AuthData
+Service --> Handler: LoginResult
+Handler -> Handler: serialize result
+Handler --> Server: 200 {username, authToken}
+Server --> Client: 200 {username, authToken}
+end
+end
+end
+
+group #green Logout (/session) #white
+Client -> Server: DELETE /session\nAuthorization: authToken
+Server -> Handler: route /session
+Handler -> Handler: deserialize LogoutRequest
+Handler -> Service: logout(authToken)
+Service -> DataAccess: getAuth(authToken)
+DataAccess -> Database: SELECT AuthData by token
+Database --> DataAccess: AuthData or null
+DataAccess --> Service: AuthData or null
+alt authToken is invalid
+Service --> Handler: UnauthorizedException
+Handler --> Server: error response
+Server --> Client: 401 {message}
+else authToken is valid
+Service -> DataAccess: deleteAuth(authToken)
+DataAccess -> Database: DELETE AuthData
+Database --> DataAccess: success
+DataAccess --> Service: success
+Service --> Handler: LogoutResult
+Handler --> Server: 200 {}
+Server --> Client: 200 {}
+end
+end
+
+group #red List games (/game) #white
+Client -> Server: GET /game\nAuthorization: authToken
+Server -> Handler: route /game
+Handler -> Service: listGames(authToken)
+Service -> DataAccess: getAuth(authToken)
+DataAccess -> Database: SELECT AuthData by token
+Database --> DataAccess: AuthData or null
+DataAccess --> Service: AuthData or null
+alt authToken is invalid
+Service --> Handler: UnauthorizedException
+Handler --> Server: error response
+Server --> Client: 401 {message}
+else authToken is valid
+Service -> DataAccess: listGames()
+DataAccess -> Database: SELECT all GameData
+Database --> DataAccess: list of GameData
+DataAccess --> Service: list of GameData
+Service --> Handler: ListGamesResult
+Handler -> Handler: serialize result
+Handler --> Server: 200 {games}
+Server --> Client: 200 {games}
+end
+end
+
+group #purple Create game (/game) #white
+Client -> Server: POST /game\nAuthorization: authToken\n{gameName}
+Server -> Handler: route /game
+Handler -> Handler: deserialize CreateGameRequest
+alt malformed JSON or missing fields
+Handler --> Server: 400 bad request
+Server --> Client: 400 {message}
+else valid request
+Handler -> Service: createGame(request, authToken)
+Service -> DataAccess: getAuth(authToken)
+DataAccess -> Database: SELECT AuthData by token
+Database --> DataAccess: AuthData or null
+DataAccess --> Service: AuthData or null
+alt authToken is invalid
+Service --> Handler: UnauthorizedException
+Handler --> Server: error response
+Server --> Client: 401 {message}
+else authToken is valid
+Service -> DataAccess: createGame(GameData)
+DataAccess -> Database: INSERT GameData with new gameID
+Database --> DataAccess: GameData
+DataAccess --> Service: gameID
+Service --> Handler: CreateGameResult
+Handler -> Handler: serialize result
+Handler --> Server: 200 {gameID}
+Server --> Client: 200 {gameID}
+end
+end
+end
+
+group #yellow Join game (/game) #black
+Client -> Server: PUT /game\nAuthorization: authToken\n{playerColor, gameID}
+Server -> Handler: route /game
+Handler -> Handler: deserialize JoinGameRequest
+alt malformed JSON or missing fields
+Handler --> Server: 400 bad request
+Server --> Client: 400 {message}
+else valid request
+Handler -> Service: joinGame(request, authToken)
+Service -> DataAccess: getAuth(authToken)
+DataAccess -> Database: SELECT AuthData by token
+Database --> DataAccess: AuthData or null
+DataAccess --> Service: AuthData or null
+alt authToken is invalid
+Service --> Handler: UnauthorizedException
+Handler --> Server: error response
+Server --> Client: 401 {message}
+else authToken is valid
+Service -> DataAccess: getGame(gameID)
+DataAccess -> Database: SELECT GameData by gameID
+Database --> DataAccess: GameData or null
+DataAccess --> Service: GameData or null
+alt game does not exist
+Service --> Handler: BadRequestException
+Handler --> Server: error response
+Server --> Client: 400 {message}
+else requested color is already occupied
+Service --> Handler: AlreadyTakenException
+Handler --> Server: error response
+Server --> Client: 403 {message}
+else color is available
+Service -> DataAccess: updateGame(GameData with player)
+DataAccess -> Database: UPDATE GameData
+Database --> DataAccess: success
+DataAccess --> Service: success
+Service --> Handler: JoinGameResult
+Handler --> Server: 200 {}
+Server --> Client: 200 {}
+end
+end
+end
+end
+
+note over Server,Database: Any DataAccessException is propagated to the server and translated into HTTP 500 {message}.
