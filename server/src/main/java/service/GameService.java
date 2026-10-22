@@ -36,6 +36,34 @@ public class GameService {
         return new ListGamesResult(games);
     }
 
+    public void joinGame(JoinGameRequest request, String authToken)
+            throws UnauthorizedException, BadRequestException, AlreadyTakenException, DataAccessException {
+        AuthData auth = validateAuth(authToken);
+        if (request == null || request.gameID() == null || request.gameID() <= 0
+                || (!"WHITE".equals(request.playerColor()) && !"BLACK".equals(request.playerColor()))) {
+            throw new BadRequestException();
+        }
+
+        synchronized (gameDAO) {
+            GameData game = gameDAO.getGame(request.gameID());
+            if (game == null) {
+                throw new BadRequestException();
+            }
+            boolean joiningWhite = "WHITE".equals(request.playerColor());
+            String occupant = joiningWhite ? game.whiteUsername() : game.blackUsername();
+            if (occupant != null) {
+                throw new AlreadyTakenException();
+            }
+
+            gameDAO.updateGame(new GameData(
+                    game.gameID(),
+                    joiningWhite ? auth.username() : game.whiteUsername(),
+                    joiningWhite ? game.blackUsername() : auth.username(),
+                    game.gameName(),
+                    game.game()));
+        }
+    }
+
     private AuthData validateAuth(String authToken) throws UnauthorizedException, DataAccessException {
         if (authToken == null || authToken.isBlank()) {
             throw new UnauthorizedException();

@@ -43,6 +43,7 @@ public class Server {
         GameHandler gameHandler = new GameHandler(gameService);
         javalin.post("/game", gameHandler::handleCreateGame);
         javalin.get("/game", gameHandler::handleListGames);
+        javalin.put("/game", gameHandler::handleJoinGame);
 
         javalin.exception(BadRequestException.class, (exception, context) -> sendError(exception, context, 400));
         javalin.exception(UnauthorizedException.class, (exception, context) -> sendError(exception, context, 401));
