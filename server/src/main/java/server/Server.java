@@ -12,6 +12,7 @@ import io.javalin.http.Context;
 import service.AlreadyTakenException;
 import service.BadRequestException;
 import service.ClearService;
+import service.GameService;
 import service.UnauthorizedException;
 import service.UserService;
 
@@ -37,6 +38,10 @@ public class Server {
         javalin.post("/user", userHandler::handleRegister);
         javalin.post("/session", userHandler::handleLogin);
         javalin.delete("/session", userHandler::handleLogout);
+
+        GameService gameService = new GameService(gameDAO, authDAO);
+        GameHandler gameHandler = new GameHandler(gameService);
+        javalin.post("/game", gameHandler::handleCreateGame);
 
         javalin.exception(BadRequestException.class, (exception, context) -> sendError(exception, context, 400));
         javalin.exception(UnauthorizedException.class, (exception, context) -> sendError(exception, context, 401));
