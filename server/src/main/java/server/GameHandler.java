@@ -2,7 +2,6 @@ package server;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonParseException;
 import dataaccess.DataAccessException;
 import io.javalin.http.Context;
 import service.AlreadyTakenException;
@@ -24,7 +23,7 @@ public class GameHandler {
 
     public void handleCreateGame(Context context)
             throws UnauthorizedException, BadRequestException, DataAccessException {
-        CreateGameRequest request = readRequest(context, CreateGameRequest.class);
+        CreateGameRequest request = JsonRequestReader.read(context.body(), CreateGameRequest.class);
         CreateGameResult result = gameService.createGame(request, context.header("authorization"));
         context.status(200).contentType("application/json").result(gson.toJson(result));
     }
@@ -36,16 +35,8 @@ public class GameHandler {
 
     public void handleJoinGame(Context context)
             throws UnauthorizedException, BadRequestException, AlreadyTakenException, DataAccessException {
-        JoinGameRequest request = readRequest(context, JoinGameRequest.class);
+        JoinGameRequest request = JsonRequestReader.read(context.body(), JoinGameRequest.class);
         gameService.joinGame(request, context.header("authorization"));
         context.status(200).contentType("application/json").result("{}");
-    }
-
-    private <T> T readRequest(Context context, Class<T> requestType) throws BadRequestException {
-        try {
-            return gson.fromJson(context.body(), requestType);
-        } catch (JsonParseException exception) {
-            throw new BadRequestException();
-        }
     }
 }

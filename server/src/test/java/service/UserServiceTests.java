@@ -319,6 +319,31 @@ public class UserServiceTests {
         assertEquals(new AuthData(registration.authToken(), "alice"), authDAO.getAuth(registration.authToken()));
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void registrationWriteFailurePropagatesToCaller(boolean failUserWrite) {
+        DataAccessException failure = new DataAccessException("Unable to store registration");
+        UserDAO failingUserDAO = new MemoryUserDAO() {
+            @Override
+            public void createUser(UserData user) throws DataAccessException {
+                if (failUserWrite) {
+                    throw failure;
+                }
+                super.createUser(user);
+            }
+        };
+        AuthDAO failingAuthDAO = new MemoryAuthDAO() {
+            @Override
+            public void createAuth(AuthData auth) throws DataAccessException {
+                throw failure;
+            }
+        };
+        UserService failingService = new UserService(failingUserDAO, failingAuthDAO);
+        RegisterRequest request = new RegisterRequest("alice", "password", "alice@example.com");
+
+        assertSame(failure, assertThrows(DataAccessException.class, () -> failingService.register(request)));
+    }
+
     private UserService serviceWithFailingUserLookup(DataAccessException failure) {
         UserDAO failingUserDAO = new UserDAO() {
             @Override
