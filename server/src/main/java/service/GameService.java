@@ -27,6 +27,15 @@ public class GameService {
         return new CreateGameResult(gameID);
     }
 
+    public ListGamesResult listGames(String authToken) throws UnauthorizedException, DataAccessException {
+        validateAuth(authToken);
+        var games = gameDAO.listGames().stream()
+                .map(game -> new ListGamesResult.GameSummary(
+                        game.gameID(), game.whiteUsername(), game.blackUsername(), game.gameName()))
+                .toList();
+        return new ListGamesResult(games);
+    }
+
     private AuthData validateAuth(String authToken) throws UnauthorizedException, DataAccessException {
         if (authToken == null || authToken.isBlank()) {
             throw new UnauthorizedException();
