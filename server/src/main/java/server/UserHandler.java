@@ -35,6 +35,11 @@ public class UserHandler {
         context.status(200).contentType("application/json").result(gson.toJson(result));
     }
 
+    public void handleLogout(Context context) throws UnauthorizedException, DataAccessException {
+        userService.logout(context.header("authorization"));
+        context.status(200).contentType("application/json").result("{}");
+    }
+
     private <T> T readRequest(Context context, Class<T> requestType) throws BadRequestException {
         try {
             return gson.fromJson(context.body(), requestType);

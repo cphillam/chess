@@ -221,6 +221,104 @@ public class UserServiceTests {
         assertEquals(user, userDAO.getUser("alice"));
     }
 
+    @Test
+    public void logoutRemovesTokenAndPreservesUser() throws Exception {
+        RegisterResult registration = userService.register(
+                new RegisterRequest("alice", "password", "alice@example.com"));
+
+        userService.logout(registration.authToken());
+
+        assertNull(authDAO.getAuth(registration.authToken()));
+        assertEquals(new UserData("alice", "password", "alice@example.com"), userDAO.getUser("alice"));
+    }
+
+    @Test
+    public void logoutPreservesOtherSessionsAndOtherUsers() throws Exception {
+        RegisterResult alice = userService.register(new RegisterRequest("alice", "password", "alice@example.com"));
+        LoginResult otherSession = userService.login(new LoginRequest("alice", "password"));
+        RegisterResult bob = userService.register(new RegisterRequest("bob", "password", "bob@example.com"));
+
+        userService.logout(alice.authToken());
+
+        assertNull(authDAO.getAuth(alice.authToken()));
+        assertEquals(new AuthData(otherSession.authToken(), "alice"), authDAO.getAuth(otherSession.authToken()));
+        assertEquals(new AuthData(bob.authToken(), "bob"), authDAO.getAuth(bob.authToken()));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "\t\n", "unknown-token"})
+    public void logoutRejectsMissingOrUnknownToken(String authToken) throws Exception {
+        RegisterResult registration = userService.register(
+                new RegisterRequest("alice", "password", "alice@example.com"));
+
+        assertThrows(UnauthorizedException.class, () -> userService.logout(authToken));
+
+        assertEquals(new AuthData(registration.authToken(), "alice"), authDAO.getAuth(registration.authToken()));
+    }
+
+    @Test
+    public void logoutRejectsAlreadyUsedToken() throws Exception {
+        RegisterResult registration = userService.register(
+                new RegisterRequest("alice", "password", "alice@example.com"));
+        userService.logout(registration.authToken());
+
+        assertThrows(UnauthorizedException.class, () -> userService.logout(registration.authToken()));
+
+        assertNull(authDAO.getAuth(registration.authToken()));
+        assertNotNull(userDAO.getUser("alice"));
+    }
+
+    @Test
+    public void userCanLogInAgainAfterLogout() throws Exception {
+        RegisterResult registration = userService.register(
+                new RegisterRequest("alice", "password", "alice@example.com"));
+        userService.logout(registration.authToken());
+
+        LoginResult login = userService.login(new LoginRequest("alice", "password"));
+
+        assertNotEquals(registration.authToken(), login.authToken());
+        assertNull(authDAO.getAuth(registration.authToken()));
+        assertEquals(new AuthData(login.authToken(), "alice"), authDAO.getAuth(login.authToken()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void logoutStorageFailurePropagatesToCaller(boolean failLookup) throws Exception {
+        RegisterResult registration = userService.register(
+                new RegisterRequest("alice", "password", "alice@example.com"));
+        DataAccessException failure = new DataAccessException("Unable to access auth storage");
+        AuthDAO failingAuthDAO = new AuthDAO() {
+            @Override
+            public void createAuth(AuthData auth) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public AuthData getAuth(String authToken) throws DataAccessException {
+                if (failLookup) {
+                    throw failure;
+                }
+                return authDAO.getAuth(authToken);
+            }
+
+            @Override
+            public void deleteAuth(String authToken) throws DataAccessException {
+                throw failure;
+            }
+
+            @Override
+            public void clear() {
+                throw new UnsupportedOperationException();
+            }
+        };
+        UserService failingService = new UserService(userDAO, failingAuthDAO);
+
+        assertSame(failure, assertThrows(DataAccessException.class,
+                () -> failingService.logout(registration.authToken())));
+        assertEquals(new AuthData(registration.authToken(), "alice"), authDAO.getAuth(registration.authToken()));
+    }
+
     private UserService serviceWithFailingUserLookup(DataAccessException failure) {
         UserDAO failingUserDAO = new UserDAO() {
             @Override

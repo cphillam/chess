@@ -36,6 +36,7 @@ public class Server {
         UserHandler userHandler = new UserHandler(userService);
         javalin.post("/user", userHandler::handleRegister);
         javalin.post("/session", userHandler::handleLogin);
+        javalin.delete("/session", userHandler::handleLogout);
 
         javalin.exception(BadRequestException.class, (exception, context) -> sendError(exception, context, 400));
         javalin.exception(UnauthorizedException.class, (exception, context) -> sendError(exception, context, 401));
