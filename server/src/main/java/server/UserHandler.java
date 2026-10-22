@@ -6,8 +6,11 @@ import dataaccess.DataAccessException;
 import io.javalin.http.Context;
 import service.AlreadyTakenException;
 import service.BadRequestException;
+import service.LoginRequest;
+import service.LoginResult;
 import service.RegisterRequest;
 import service.RegisterResult;
+import service.UnauthorizedException;
 import service.UserService;
 
 public class UserHandler {
@@ -20,13 +23,23 @@ public class UserHandler {
 
     public void handleRegister(Context context)
             throws BadRequestException, AlreadyTakenException, DataAccessException {
-        RegisterRequest request;
+        RegisterRequest request = readRequest(context, RegisterRequest.class);
+        RegisterResult result = userService.register(request);
+        context.status(200).contentType("application/json").result(gson.toJson(result));
+    }
+
+    public void handleLogin(Context context)
+            throws BadRequestException, UnauthorizedException, DataAccessException {
+        LoginRequest request = readRequest(context, LoginRequest.class);
+        LoginResult result = userService.login(request);
+        context.status(200).contentType("application/json").result(gson.toJson(result));
+    }
+
+    private <T> T readRequest(Context context, Class<T> requestType) throws BadRequestException {
         try {
-            request = gson.fromJson(context.body(), RegisterRequest.class);
+            return gson.fromJson(context.body(), requestType);
         } catch (JsonParseException exception) {
             throw new BadRequestException();
         }
-        RegisterResult result = userService.register(request);
-        context.status(200).contentType("application/json").result(gson.toJson(result));
     }
 }

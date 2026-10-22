@@ -100,6 +100,128 @@ public class UserServiceTests {
     @Test
     public void registrationStorageFailurePropagatesToCaller() {
         DataAccessException failure = new DataAccessException("Unable to read users");
+        UserService failingService = serviceWithFailingUserLookup(failure);
+        RegisterRequest request = new RegisterRequest("alice", "password", "alice@example.com");
+
+        assertSame(failure, assertThrows(DataAccessException.class, () -> failingService.register(request)));
+    }
+
+    @Test
+    public void loginReturnsNewAuthForExistingUser() throws Exception {
+        RegisterResult registration = userService.register(
+                new RegisterRequest("alice", "password", "alice@example.com"));
+
+        LoginResult result = userService.login(new LoginRequest("alice", "password"));
+
+        assertEquals("alice", result.username());
+        assertNotNull(UUID.fromString(result.authToken()));
+        assertNotEquals(registration.authToken(), result.authToken());
+        assertEquals(new AuthData(result.authToken(), "alice"), authDAO.getAuth(result.authToken()));
+        assertEquals(new UserData("alice", "password", "alice@example.com"), userDAO.getUser("alice"));
+    }
+
+    @Test
+    public void repeatedLoginsKeepAllSessionsValid() throws Exception {
+        RegisterResult registration = userService.register(
+                new RegisterRequest("alice", "password", "alice@example.com"));
+        LoginRequest request = new LoginRequest("alice", "password");
+
+        LoginResult first = userService.login(request);
+        LoginResult second = userService.login(request);
+
+        assertNotEquals(registration.authToken(), first.authToken());
+        assertNotEquals(registration.authToken(), second.authToken());
+        assertNotEquals(first.authToken(), second.authToken());
+        assertEquals(new AuthData(registration.authToken(), "alice"), authDAO.getAuth(registration.authToken()));
+        assertEquals(new AuthData(first.authToken(), "alice"), authDAO.getAuth(first.authToken()));
+        assertEquals(new AuthData(second.authToken(), "alice"), authDAO.getAuth(second.authToken()));
+    }
+
+    @Test
+    public void loginRejectsUnknownUser() throws Exception {
+        RegisterResult registration = userService.register(
+                new RegisterRequest("alice", "password", "alice@example.com"));
+
+        assertThrows(UnauthorizedException.class, () -> userService.login(new LoginRequest("unknown", "password")));
+
+        assertNull(userDAO.getUser("unknown"));
+        assertEquals(new AuthData(registration.authToken(), "alice"), authDAO.getAuth(registration.authToken()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"wrong-password", "PASSWORD", " password "})
+    public void loginRejectsIncorrectPassword(String password) throws Exception {
+        RegisterResult registration = userService.register(
+                new RegisterRequest("alice", "password", "alice@example.com"));
+
+        assertThrows(UnauthorizedException.class, () -> userService.login(new LoginRequest("alice", password)));
+
+        assertEquals(new AuthData(registration.authToken(), "alice"), authDAO.getAuth(registration.authToken()));
+        assertEquals("password", userDAO.getUser("alice").password());
+    }
+
+    @Test
+    public void loginRejectsNullRequest() {
+        assertThrows(BadRequestException.class, () -> userService.login(null));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "\t\n"})
+    public void loginRejectsMissingUsername(String username) {
+        assertThrows(BadRequestException.class, () -> userService.login(new LoginRequest(username, "password")));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "\t\n"})
+    public void loginRejectsMissingPassword(String password) {
+        assertThrows(BadRequestException.class, () -> userService.login(new LoginRequest("alice", password)));
+    }
+
+    @Test
+    public void loginStorageFailurePropagatesToCaller() {
+        DataAccessException failure = new DataAccessException("Unable to read users");
+        UserService failingService = serviceWithFailingUserLookup(failure);
+        LoginRequest request = new LoginRequest("alice", "password");
+
+        assertSame(failure, assertThrows(DataAccessException.class, () -> failingService.login(request)));
+    }
+
+    @Test
+    public void loginAuthStorageFailurePropagatesToCaller() throws DataAccessException {
+        UserData user = new UserData("alice", "password", "alice@example.com");
+        userDAO.createUser(user);
+        DataAccessException failure = new DataAccessException("Unable to store auth token");
+        AuthDAO failingAuthDAO = new AuthDAO() {
+            @Override
+            public void createAuth(AuthData auth) throws DataAccessException {
+                throw failure;
+            }
+
+            @Override
+            public AuthData getAuth(String authToken) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void deleteAuth(String authToken) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void clear() {
+                throw new UnsupportedOperationException();
+            }
+        };
+        UserService failingService = new UserService(userDAO, failingAuthDAO);
+        LoginRequest request = new LoginRequest("alice", "password");
+
+        assertSame(failure, assertThrows(DataAccessException.class, () -> failingService.login(request)));
+        assertEquals(user, userDAO.getUser("alice"));
+    }
+
+    private UserService serviceWithFailingUserLookup(DataAccessException failure) {
         UserDAO failingUserDAO = new UserDAO() {
             @Override
             public void createUser(UserData user) {
@@ -116,9 +238,6 @@ public class UserServiceTests {
                 throw new UnsupportedOperationException();
             }
         };
-        UserService failingService = new UserService(failingUserDAO, authDAO);
-        RegisterRequest request = new RegisterRequest("alice", "password", "alice@example.com");
-
-        assertSame(failure, assertThrows(DataAccessException.class, () -> failingService.register(request)));
+        return new UserService(failingUserDAO, authDAO);
     }
 }

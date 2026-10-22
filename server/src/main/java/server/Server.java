@@ -12,6 +12,7 @@ import io.javalin.http.Context;
 import service.AlreadyTakenException;
 import service.BadRequestException;
 import service.ClearService;
+import service.UnauthorizedException;
 import service.UserService;
 
 import java.util.Map;
@@ -34,8 +35,10 @@ public class Server {
         UserService userService = new UserService(userDAO, authDAO);
         UserHandler userHandler = new UserHandler(userService);
         javalin.post("/user", userHandler::handleRegister);
+        javalin.post("/session", userHandler::handleLogin);
 
         javalin.exception(BadRequestException.class, (exception, context) -> sendError(exception, context, 400));
+        javalin.exception(UnauthorizedException.class, (exception, context) -> sendError(exception, context, 401));
         javalin.exception(AlreadyTakenException.class, (exception, context) -> sendError(exception, context, 403));
         javalin.exception(Exception.class, (exception, context) -> sendError(exception, context, 500));
     }
