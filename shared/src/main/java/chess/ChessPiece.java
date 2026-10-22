@@ -192,11 +192,9 @@ public class ChessPiece {
 
                 if (myPosition.getRow() == startRow) {
                     int twoStepRow = myPosition.getRow() + (2 * direction);
-                    if (isOnBoard(twoStepRow, col)) {
-                        ChessPosition twoStepPos = new ChessPosition(twoStepRow, col);
-                        if (board.getPiece(twoStepPos) == null) {
-                            moves.add(new ChessMove(myPosition, twoStepPos, null));
-                        }
+                    ChessPosition twoStepPos = new ChessPosition(twoStepRow, col);
+                    if (isOnBoard(twoStepRow, col) && board.getPiece(twoStepPos) == null) {
+                        moves.add(new ChessMove(myPosition, twoStepPos, null));
                     }
                 }
             }

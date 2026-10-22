@@ -33,15 +33,6 @@ public class ChessBoard implements Cloneable {
         }
     }
 
-    /**
-     * Creates a deep copy of this chessboard.
-     *
-     * @return a new ChessBoard with identical piece placements
-     */
-    public ChessBoard copy() {
-        return new ChessBoard(this);
-    }
-
     @Override
     public ChessBoard clone() {
         return new ChessBoard(this);

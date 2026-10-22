@@ -374,14 +374,17 @@ public class ChessGame {
                 ChessPosition piecePosition = new ChessPosition(row, col);
                 ChessPiece piece = evalBoard.getPiece(piecePosition);
 
-                if (piece != null && piece.getTeamColor() == opponentColor) {
-                    Collection<ChessMove> opponentMoves = piece.pieceMoves(evalBoard, piecePosition);
-                    if (opponentMoves != null) {
-                        for (ChessMove move : opponentMoves) {
-                            if (move.getEndPosition().equals(kingPosition)) {
-                                return true;
-                            }
-                        }
+                if (piece == null || piece.getTeamColor() != opponentColor) {
+                    continue;
+                }
+
+                Collection<ChessMove> opponentMoves = piece.pieceMoves(evalBoard, piecePosition);
+                if (opponentMoves == null) {
+                    continue;
+                }
+                for (ChessMove move : opponentMoves) {
+                    if (move.getEndPosition().equals(kingPosition)) {
+                        return true;
                     }
                 }
             }
