@@ -6,70 +6,31 @@ import chess.ChessPosition;
 import com.google.gson.Gson;
 import dataaccess.DataAccessException;
 import dataaccess.DatabaseManager;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mindrot.jbcrypt.BCrypt;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashSet;
-import java.util.Properties;
 import java.util.Set;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class SqlDatabaseTests {
-    private Properties originalProperties;
-    private Properties testProperties;
-    private String testDatabaseName;
-
-    @BeforeEach
-    public void configureTemporaryDatabase() throws Exception {
-        originalProperties = new Properties();
-        try (var stream = DatabaseManager.class.getClassLoader().getResourceAsStream("db.properties")) {
-            if (stream == null) {
-                throw new IllegalStateException("Unable to load db.properties");
-            }
-            originalProperties.load(stream);
-        }
-
-        testDatabaseName = "chess-schema-test-" + UUID.randomUUID();
-        testProperties = new Properties();
-        testProperties.putAll(originalProperties);
-        testProperties.setProperty("db.name", testDatabaseName);
-        loadProperties(testProperties);
-    }
-
-    @AfterEach
-    public void removeTemporaryDatabase() throws Exception {
-        String url = "jdbc:mysql://%s:%s".formatted(
-                originalProperties.getProperty("db.host"), originalProperties.getProperty("db.port"));
-        try (Connection conn = DriverManager.getConnection(url,
-                originalProperties.getProperty("db.user"), originalProperties.getProperty("db.password"));
-             var statement = conn.createStatement()) {
-            statement.executeUpdate("DROP DATABASE IF EXISTS `" + testDatabaseName + "`");
-        } finally {
-            loadProperties(originalProperties);
-        }
-    }
-
+public class SqlDatabaseTests extends SqlTestSupport {
     @Test
     public void initializeCreatesConfiguredDatabaseAndAllTables() throws Exception {
         SqlDatabase.initialize();
 
         try (Connection conn = DatabaseManager.getConnection();
-             var tables = conn.getMetaData().getTables(testDatabaseName, null, "%", new String[]{"TABLE"})) {
+             var tables = conn.getMetaData().getTables(getTestDatabaseName(), null, "%", new String[]{"TABLE"})) {
             Set<String> tableNames = new HashSet<>();
             while (tables.next()) {
                 tableNames.add(tables.getString("TABLE_NAME"));
             }
-            assertEquals(testDatabaseName, conn.getCatalog());
+            assertEquals(getTestDatabaseName(), conn.getCatalog());
             assertEquals(Set.of("users", "auth_tokens", "games"), tableNames);
         }
     }
@@ -158,8 +119,7 @@ public class SqlDatabaseTests {
 
     @Test
     public void initializeReportsConnectionFailures() throws Exception {
-        testProperties.setProperty("db.port", "100000");
-        loadProperties(testProperties);
+        makeDatabaseUnavailable();
 
         DataAccessException exception = assertThrows(DataAccessException.class, SqlDatabase::initialize);
 
@@ -199,9 +159,4 @@ public class SqlDatabaseTests {
         }
     }
 
-    private void loadProperties(Properties properties) throws ReflectiveOperationException {
-        var method = DatabaseManager.class.getDeclaredMethod("loadProperties", Properties.class);
-        method.setAccessible(true);
-        method.invoke(null, properties);
-    }
 }
