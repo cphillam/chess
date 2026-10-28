@@ -1,6 +1,8 @@
 package dataaccess;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.Properties;
 
 public class DatabaseManager {
@@ -19,8 +21,8 @@ public class DatabaseManager {
     /**
      * Creates the database if it does not already exist.
      */
-    static public void createDatabase() throws DataAccessException {
-        var statement = "CREATE DATABASE IF NOT EXISTS " + databaseName;
+    public static void createDatabase() throws DataAccessException {
+        var statement = "CREATE DATABASE IF NOT EXISTS `" + databaseName.replace("`", "``") + "`";
         try (var conn = DriverManager.getConnection(connectionUrl, dbUsername, dbPassword);
              var preparedStatement = conn.prepareStatement(statement)) {
             preparedStatement.executeUpdate();
@@ -41,13 +43,20 @@ public class DatabaseManager {
      * }
      * </code>
      */
-    static Connection getConnection() throws DataAccessException {
+    public static Connection getConnection() throws DataAccessException {
+        Connection conn = null;
         try {
-            //do not wrap the following line with a try-with-resources
-            var conn = DriverManager.getConnection(connectionUrl, dbUsername, dbPassword);
+            conn = DriverManager.getConnection(connectionUrl, dbUsername, dbPassword);
             conn.setCatalog(databaseName);
             return conn;
         } catch (SQLException ex) {
+            if (conn != null) {
+                try {
+                    conn.close();
+                } catch (SQLException closeException) {
+                    ex.addSuppressed(closeException);
+                }
+            }
             throw new DataAccessException("failed to get connection", ex);
         }
     }
