@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mindrot.jbcrypt.BCrypt;
 
 import java.util.UUID;
 
@@ -37,8 +38,25 @@ public class UserServiceTests {
 
         assertEquals("alice", result.username());
         assertNotNull(UUID.fromString(result.authToken()));
-        assertEquals(new UserData("alice", "password", "alice@example.com"), userDAO.getUser("alice"));
+        UserData stored = userDAO.getUser("alice");
+        assertEquals("alice", stored.username());
+        assertEquals("alice@example.com", stored.email());
+        assertNotEquals(request.password(), stored.password());
+        assertTrue(BCrypt.checkpw(request.password(), stored.password()));
         assertEquals(new AuthData(result.authToken(), "alice"), authDAO.getAuth(result.authToken()));
+    }
+
+    @Test
+    public void registrationUsesDifferentSaltsForTheSamePassword() throws Exception {
+        userService.register(new RegisterRequest("alice", "password", "alice@example.com"));
+        userService.register(new RegisterRequest("bob", "password", "bob@example.com"));
+
+        String aliceHash = userDAO.getUser("alice").password();
+        String bobHash = userDAO.getUser("bob").password();
+
+        assertNotEquals(aliceHash, bobHash);
+        assertTrue(BCrypt.checkpw("password", aliceHash));
+        assertTrue(BCrypt.checkpw("password", bobHash));
     }
 
     @Test
@@ -54,11 +72,12 @@ public class UserServiceTests {
     @Test
     public void duplicateUsernamePreservesOriginalUserAndSession() throws Exception {
         RegisterResult original = userService.register(new RegisterRequest("alice", "password", "alice@example.com"));
+        UserData originalUser = userDAO.getUser("alice");
         RegisterRequest duplicate = new RegisterRequest("alice", "replacement", "other@example.com");
 
         assertThrows(AlreadyTakenException.class, () -> userService.register(duplicate));
 
-        assertEquals(new UserData("alice", "password", "alice@example.com"), userDAO.getUser("alice"));
+        assertEquals(originalUser, userDAO.getUser("alice"));
         assertEquals(new AuthData(original.authToken(), "alice"), authDAO.getAuth(original.authToken()));
     }
 
@@ -110,6 +129,7 @@ public class UserServiceTests {
     public void loginReturnsNewAuthForExistingUser() throws Exception {
         RegisterResult registration = userService.register(
                 new RegisterRequest("alice", "password", "alice@example.com"));
+        UserData originalUser = userDAO.getUser("alice");
 
         LoginResult result = userService.login(new LoginRequest("alice", "password"));
 
@@ -117,7 +137,43 @@ public class UserServiceTests {
         assertNotNull(UUID.fromString(result.authToken()));
         assertNotEquals(registration.authToken(), result.authToken());
         assertEquals(new AuthData(result.authToken(), "alice"), authDAO.getAuth(result.authToken()));
-        assertEquals(new UserData("alice", "password", "alice@example.com"), userDAO.getUser("alice"));
+        assertEquals(originalUser, userDAO.getUser("alice"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {" padded password ", "pāsswörd♟"})
+    public void registrationAndLoginPreservePasswordContent(String password) throws Exception {
+        userService.register(new RegisterRequest("alice", password, "alice@example.com"));
+
+        LoginResult result = userService.login(new LoginRequest("alice", password));
+
+        assertEquals("alice", result.username());
+        assertTrue(BCrypt.checkpw(password, userDAO.getUser("alice").password()));
+        assertEquals(new AuthData(result.authToken(), "alice"), authDAO.getAuth(result.authToken()));
+    }
+
+    @Test
+    public void loginRejectsTheStoredHashAsAPassword() throws Exception {
+        RegisterResult registration = userService.register(
+                new RegisterRequest("alice", "password", "alice@example.com"));
+        UserData stored = userDAO.getUser("alice");
+
+        assertThrows(UnauthorizedException.class, () -> userService.login(new LoginRequest("alice", stored.password())));
+
+        assertEquals(stored, userDAO.getUser("alice"));
+        assertEquals(new AuthData(registration.authToken(), "alice"), authDAO.getAuth(registration.authToken()));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"password", "$2a$10$short", "$2a$xx$invalid"})
+    public void loginRejectsMissingOrMalformedStoredHashes(String hash) throws DataAccessException {
+        UserData stored = new UserData("alice", hash, "alice@example.com");
+        userDAO.createUser(stored);
+
+        assertThrows(UnauthorizedException.class, () -> userService.login(new LoginRequest("alice", "password")));
+
+        assertEquals(stored, userDAO.getUser("alice"));
     }
 
     @Test
@@ -153,11 +209,12 @@ public class UserServiceTests {
     public void loginRejectsIncorrectPassword(String password) throws Exception {
         RegisterResult registration = userService.register(
                 new RegisterRequest("alice", "password", "alice@example.com"));
+        UserData originalUser = userDAO.getUser("alice");
 
         assertThrows(UnauthorizedException.class, () -> userService.login(new LoginRequest("alice", password)));
 
         assertEquals(new AuthData(registration.authToken(), "alice"), authDAO.getAuth(registration.authToken()));
-        assertEquals("password", userDAO.getUser("alice").password());
+        assertEquals(originalUser, userDAO.getUser("alice"));
     }
 
     @Test
@@ -190,7 +247,7 @@ public class UserServiceTests {
 
     @Test
     public void loginAuthStorageFailurePropagatesToCaller() throws DataAccessException {
-        UserData user = new UserData("alice", "password", "alice@example.com");
+        UserData user = new UserData("alice", BCrypt.hashpw("password", BCrypt.gensalt(4)), "alice@example.com");
         userDAO.createUser(user);
         DataAccessException failure = new DataAccessException("Unable to store auth token");
         AuthDAO failingAuthDAO = new AuthDAO() {
@@ -225,11 +282,12 @@ public class UserServiceTests {
     public void logoutRemovesTokenAndPreservesUser() throws Exception {
         RegisterResult registration = userService.register(
                 new RegisterRequest("alice", "password", "alice@example.com"));
+        UserData originalUser = userDAO.getUser("alice");
 
         userService.logout(registration.authToken());
 
         assertNull(authDAO.getAuth(registration.authToken()));
-        assertEquals(new UserData("alice", "password", "alice@example.com"), userDAO.getUser("alice"));
+        assertEquals(originalUser, userDAO.getUser("alice"));
     }
 
     @Test

@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mindrot.jbcrypt.BCrypt;
 import service.ClearService;
 
 import java.net.URI;
@@ -30,6 +31,8 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class RequestValidationTests {
+    private static final String PASSWORD_HASH = BCrypt.hashpw("password", BCrypt.gensalt(4));
+
     private static UserDAO userDAO;
     private static AuthDAO authDAO;
     private static GameDAO gameDAO;
@@ -61,7 +64,7 @@ public class RequestValidationTests {
     @BeforeEach
     public void setup() throws Exception {
         new ClearService(userDAO, authDAO, gameDAO).clear();
-        userDAO.createUser(new UserData("alice", "password", "alice@example.com"));
+        userDAO.createUser(new UserData("alice", PASSWORD_HASH, "alice@example.com"));
         authDAO.createAuth(new AuthData("alice-token", "alice"));
         gameID = gameDAO.createGame(new GameData(0, null, null, "Existing game", new ChessGame()));
     }
