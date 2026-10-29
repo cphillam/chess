@@ -1,7 +1,7 @@
 package dataaccess.sql;
 
+import dataaccess.AuthDAO;
 import dataaccess.DataAccessException;
-import dataaccess.MemoryAuthDAO;
 import dataaccess.UserDAO;
 import model.AuthData;
 import model.UserData;
@@ -22,13 +22,13 @@ public class SqlUserAuthenticationTests extends SqlTestSupport {
             new RegisterRequest("alice", "sample-password", "alice@example.com");
 
     private UserDAO userDAO;
-    private MemoryAuthDAO authDAO;
+    private AuthDAO authDAO;
     private UserService userService;
 
     @BeforeEach
     public void setupService() throws DataAccessException {
         userDAO = new SqlUserDAO();
-        authDAO = new MemoryAuthDAO();
+        authDAO = new SqlAuthDAO();
         userService = new UserService(userDAO, authDAO);
     }
 
@@ -48,15 +48,47 @@ public class SqlUserAuthenticationTests extends SqlTestSupport {
 
     @Test
     public void newServiceInstanceAuthenticatesStoredHash() throws Exception {
-        userService.register(REGISTRATION);
+        RegisterResult registration = userService.register(REGISTRATION);
         UserData originalUser = userDAO.getUser(REGISTRATION.username());
-        MemoryAuthDAO newAuthDAO = new MemoryAuthDAO();
+        AuthDAO newAuthDAO = new SqlAuthDAO();
         UserService reopenedService = new UserService(new SqlUserDAO(), newAuthDAO);
 
         LoginResult login = reopenedService.login(new LoginRequest(REGISTRATION.username(), REGISTRATION.password()));
 
         assertEquals(REGISTRATION.username(), login.username());
         assertEquals(new AuthData(login.authToken(), REGISTRATION.username()), newAuthDAO.getAuth(login.authToken()));
+        assertEquals(new AuthData(registration.authToken(), REGISTRATION.username()),
+                newAuthDAO.getAuth(registration.authToken()));
+        assertEquals(originalUser, userDAO.getUser(REGISTRATION.username()));
+    }
+
+    @Test
+    public void logoutPersistsAcrossServiceInstancesAndPreservesOtherSessions() throws Exception {
+        RegisterResult registration = userService.register(REGISTRATION);
+        LoginResult otherSession = userService.login(new LoginRequest(REGISTRATION.username(), REGISTRATION.password()));
+        UserService reopenedService = new UserService(new SqlUserDAO(), new SqlAuthDAO());
+
+        reopenedService.logout(registration.authToken());
+
+        AuthDAO reopenedAuthDAO = new SqlAuthDAO();
+        assertNull(reopenedAuthDAO.getAuth(registration.authToken()));
+        assertEquals(new AuthData(otherSession.authToken(), REGISTRATION.username()),
+                reopenedAuthDAO.getAuth(otherSession.authToken()));
+        assertNotNull(userDAO.getUser(REGISTRATION.username()));
+        assertThrows(UnauthorizedException.class, () -> userService.logout(registration.authToken()));
+    }
+
+    @Test
+    public void userCanLoginAgainAfterAllSessionsAreCleared() throws Exception {
+        RegisterResult registration = userService.register(REGISTRATION);
+        UserData originalUser = userDAO.getUser(REGISTRATION.username());
+        authDAO.clear();
+        UserService reopenedService = new UserService(new SqlUserDAO(), new SqlAuthDAO());
+
+        LoginResult login = reopenedService.login(new LoginRequest(REGISTRATION.username(), REGISTRATION.password()));
+
+        assertNull(authDAO.getAuth(registration.authToken()));
+        assertEquals(new AuthData(login.authToken(), REGISTRATION.username()), authDAO.getAuth(login.authToken()));
         assertEquals(originalUser, userDAO.getUser(REGISTRATION.username()));
     }
 
