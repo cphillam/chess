@@ -1,5 +1,6 @@
 package dataaccess.sql;
 
+import dataaccess.DataAccessException;
 import dataaccess.DatabaseManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -7,7 +8,11 @@ import org.junit.jupiter.api.BeforeEach;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.HashSet;
 import java.util.Properties;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 abstract class SqlTestSupport {
     private Properties originalProperties;
@@ -42,6 +47,18 @@ abstract class SqlTestSupport {
 
     protected String getTestDatabaseName() {
         return testDatabaseName;
+    }
+
+    protected void assertConfiguredDatabaseHasAllTables() throws DataAccessException, SQLException {
+        try (Connection conn = DatabaseManager.getConnection();
+             var tables = conn.getMetaData().getTables(getTestDatabaseName(), null, "%", new String[]{"TABLE"})) {
+            Set<String> tableNames = new HashSet<>();
+            while (tables.next()) {
+                tableNames.add(tables.getString("TABLE_NAME"));
+            }
+            assertEquals(getTestDatabaseName(), conn.getCatalog());
+            assertEquals(Set.of("users", "auth_tokens", "games"), tableNames);
+        }
     }
 
     protected void makeDatabaseUnavailable() throws ReflectiveOperationException {

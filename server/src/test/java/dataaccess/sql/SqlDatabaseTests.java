@@ -14,8 +14,6 @@ import org.mindrot.jbcrypt.BCrypt;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.HashSet;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -24,15 +22,7 @@ public class SqlDatabaseTests extends SqlTestSupport {
     public void initializeCreatesConfiguredDatabaseAndAllTables() throws Exception {
         SqlDatabase.initialize();
 
-        try (Connection conn = DatabaseManager.getConnection();
-             var tables = conn.getMetaData().getTables(getTestDatabaseName(), null, "%", new String[]{"TABLE"})) {
-            Set<String> tableNames = new HashSet<>();
-            while (tables.next()) {
-                tableNames.add(tables.getString("TABLE_NAME"));
-            }
-            assertEquals(getTestDatabaseName(), conn.getCatalog());
-            assertEquals(Set.of("users", "auth_tokens", "games"), tableNames);
-        }
+        assertConfiguredDatabaseHasAllTables();
     }
 
     @Test

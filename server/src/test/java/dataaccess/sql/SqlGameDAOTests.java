@@ -8,6 +8,7 @@ import dataaccess.AuthDAO;
 import dataaccess.DataAccessException;
 import dataaccess.DatabaseManager;
 import dataaccess.GameDAO;
+import dataaccess.GameDAOAssertions;
 import dataaccess.UserDAO;
 import model.AuthData;
 import model.GameData;
@@ -88,13 +89,7 @@ public class SqlGameDAOTests extends SqlTestSupport {
 
     @Test
     public void listGamesContainsEveryGameAndPlayerAssignment() throws DataAccessException {
-        int firstID = gameDAO.createGame(new GameData(0, "alice", null, "First game", new ChessGame()));
-        int secondID = gameDAO.createGame(new GameData(0, null, "bob", "Second game", new ChessGame()));
-
-        Collection<GameData> games = gameDAO.listGames();
-
-        assertEquals(2, games.size());
-        assertEquals(Set.of(gameDAO.getGame(firstID), gameDAO.getGame(secondID)), new HashSet<>(games));
+        GameDAOAssertions.assertListsEveryStoredGame(gameDAO);
     }
 
     @Test

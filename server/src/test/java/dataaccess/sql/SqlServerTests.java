@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dataaccess.DataAccessException;
-import dataaccess.DatabaseManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,11 +13,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.sql.Connection;
 import java.time.Duration;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -47,15 +43,7 @@ public class SqlServerTests extends SqlTestSupport {
     public void startupCreatesDatabaseAndTablesBeforeAnyRequest() throws Exception {
         startServer();
 
-        try (Connection conn = DatabaseManager.getConnection();
-             var tables = conn.getMetaData().getTables(getTestDatabaseName(), null, "%", new String[]{"TABLE"})) {
-            Set<String> tableNames = new HashSet<>();
-            while (tables.next()) {
-                tableNames.add(tables.getString("TABLE_NAME"));
-            }
-            assertEquals(getTestDatabaseName(), conn.getCatalog());
-            assertEquals(Set.of("users", "auth_tokens", "games"), tableNames);
-        }
+        assertConfiguredDatabaseHasAllTables();
     }
 
     @Test
