@@ -6,16 +6,15 @@ import org.junit.jupiter.api.BeforeEach;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.Properties;
-import java.util.UUID;
 
 abstract class SqlTestSupport {
     private Properties originalProperties;
-    private Properties testProperties;
     private String testDatabaseName;
 
     @BeforeEach
-    public void configureTemporaryDatabase() throws Exception {
+    public void configureTestDatabase() throws Exception {
         originalProperties = new Properties();
         try (var stream = DatabaseManager.class.getClassLoader().getResourceAsStream("db.properties")) {
             if (stream == null) {
@@ -24,24 +23,18 @@ abstract class SqlTestSupport {
             originalProperties.load(stream);
         }
 
-        testDatabaseName = "chess-sql-test-" + UUID.randomUUID();
-        testProperties = new Properties();
-        testProperties.putAll(originalProperties);
-        testProperties.setProperty("db.name", testDatabaseName);
-        loadProperties(testProperties);
+        testDatabaseName = originalProperties.getProperty("db.name");
+        loadProperties(originalProperties);
+        dropTestDatabase();
     }
 
     @AfterEach
-    public void removeTemporaryDatabase() throws Exception {
+    public void removeTestDatabase() throws Exception {
         if (testDatabaseName == null) {
             return;
         }
-        String url = "jdbc:mysql://%s:%s".formatted(
-                originalProperties.getProperty("db.host"), originalProperties.getProperty("db.port"));
-        try (Connection conn = DriverManager.getConnection(url,
-                originalProperties.getProperty("db.user"), originalProperties.getProperty("db.password"));
-             var statement = conn.createStatement()) {
-            statement.executeUpdate("DROP DATABASE IF EXISTS `" + testDatabaseName + "`");
+        try {
+            dropTestDatabase();
         } finally {
             loadProperties(originalProperties);
         }
@@ -53,9 +46,20 @@ abstract class SqlTestSupport {
 
     protected void makeDatabaseUnavailable() throws ReflectiveOperationException {
         Properties unavailableProperties = new Properties();
-        unavailableProperties.putAll(testProperties);
+        unavailableProperties.putAll(originalProperties);
         unavailableProperties.setProperty("db.port", "100000");
         loadProperties(unavailableProperties);
+    }
+
+    private void dropTestDatabase() throws SQLException {
+        String url = "jdbc:mysql://%s:%s".formatted(
+                originalProperties.getProperty("db.host"), originalProperties.getProperty("db.port"));
+        String quotedName = "`" + testDatabaseName.replace("`", "``") + "`";
+        try (Connection conn = DriverManager.getConnection(url,
+                originalProperties.getProperty("db.user"), originalProperties.getProperty("db.password"));
+             var statement = conn.createStatement()) {
+            statement.executeUpdate("DROP DATABASE IF EXISTS " + quotedName);
+        }
     }
 
     private void loadProperties(Properties properties) throws ReflectiveOperationException {
