@@ -2,11 +2,12 @@ package server;
 
 import com.google.gson.Gson;
 import dataaccess.AuthDAO;
+import dataaccess.DataAccessException;
 import dataaccess.GameDAO;
-import dataaccess.MemoryAuthDAO;
-import dataaccess.MemoryGameDAO;
-import dataaccess.MemoryUserDAO;
 import dataaccess.UserDAO;
+import dataaccess.sql.SqlAuthDAO;
+import dataaccess.sql.SqlGameDAO;
+import dataaccess.sql.SqlUserDAO;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import service.AlreadyTakenException;
@@ -24,31 +25,41 @@ public class Server {
     private final Gson gson = new Gson();
 
     public Server() {
-        this(new MemoryUserDAO(), new MemoryAuthDAO(), new MemoryGameDAO());
+        try {
+            javalin = createJavalin(new SqlUserDAO(), new SqlAuthDAO(), new SqlGameDAO());
+        } catch (DataAccessException ex) {
+            throw new IllegalStateException("Unable to initialize database", ex);
+        }
     }
 
     public Server(UserDAO userDAO, AuthDAO authDAO, GameDAO gameDAO) {
-        javalin = Javalin.create(config -> config.staticFiles.add("web"));
+        javalin = createJavalin(userDAO, authDAO, gameDAO);
+    }
+
+    private Javalin createJavalin(UserDAO userDAO, AuthDAO authDAO, GameDAO gameDAO) {
+        Javalin app = Javalin.create(config -> config.staticFiles.add("web"));
         ClearService clearService = new ClearService(userDAO, authDAO, gameDAO);
         ClearHandler clearHandler = new ClearHandler(clearService);
-        javalin.delete("/db", clearHandler::handleClear);
+        app.delete("/db", clearHandler::handleClear);
 
         UserService userService = new UserService(userDAO, authDAO);
         UserHandler userHandler = new UserHandler(userService);
-        javalin.post("/user", userHandler::handleRegister);
-        javalin.post("/session", userHandler::handleLogin);
-        javalin.delete("/session", userHandler::handleLogout);
+        app.post("/user", userHandler::handleRegister);
+        app.post("/session", userHandler::handleLogin);
+        app.delete("/session", userHandler::handleLogout);
 
         GameService gameService = new GameService(gameDAO, authDAO);
         GameHandler gameHandler = new GameHandler(gameService);
-        javalin.post("/game", gameHandler::handleCreateGame);
-        javalin.get("/game", gameHandler::handleListGames);
-        javalin.put("/game", gameHandler::handleJoinGame);
+        app.post("/game", gameHandler::handleCreateGame);
+        app.get("/game", gameHandler::handleListGames);
+        app.put("/game", gameHandler::handleJoinGame);
 
-        javalin.exception(BadRequestException.class, (exception, context) -> sendError(exception, context, 400));
-        javalin.exception(UnauthorizedException.class, (exception, context) -> sendError(exception, context, 401));
-        javalin.exception(AlreadyTakenException.class, (exception, context) -> sendError(exception, context, 403));
-        javalin.exception(Exception.class, (exception, context) -> sendError(exception, context, 500));
+        app.exception(BadRequestException.class, (exception, context) -> sendError(exception, context, 400));
+        app.exception(UnauthorizedException.class, (exception, context) -> sendError(exception, context, 401));
+        app.exception(AlreadyTakenException.class, (exception, context) -> sendError(exception, context, 403));
+        app.exception(DataAccessException.class, (exception, context) -> sendError(exception, context, 500));
+        app.exception(Exception.class, (exception, context) -> sendError(exception, context, 500));
+        return app;
     }
 
     private void sendError(Exception exception, Context context, int status) {
