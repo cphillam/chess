@@ -30,23 +30,45 @@ public class ServerFacade {
     }
 
     public AuthData register(String username, String password, String email) throws ClientException {
-        AuthData auth = send("POST", "/user", new RegisterRequest(username, password, email), AuthData.class);
+        return authenticate("/user", new RegisterRequest(username, password, email));
+    }
+
+    public AuthData login(String username, String password) throws ClientException {
+        return authenticate("/session", new LoginRequest(username, password));
+    }
+
+    public void logout(String authToken) throws ClientException {
+        if (authToken == null || authToken.isBlank()) {
+            throw responseError(401, "DELETE", "/session");
+        }
+        send("DELETE", "/session", null, authToken, Void.class);
+    }
+
+    private AuthData authenticate(String path, Object credentials) throws ClientException {
+        AuthData auth = send("POST", path, credentials, null, AuthData.class);
         if (auth.authToken() == null || auth.authToken().isBlank() || auth.username() == null || auth.username().isBlank()) {
             throw invalidResponse(null);
         }
         return auth;
     }
 
-    private <T> T send(String method, String path, Object body, Class<T> responseType) throws ClientException {
-        HttpRequest request = HttpRequest.newBuilder(serverURI.resolve(path))
+    private <T> T send(String method, String path, Object body, String authToken, Class<T> responseType) throws ClientException {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(serverURI.resolve(path))
                 .timeout(REQUEST_TIMEOUT)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .method(method, HttpRequest.BodyPublishers.ofString(GSON.toJson(body), StandardCharsets.UTF_8))
-                .build();
+                .method(method, body == null ? HttpRequest.BodyPublishers.noBody()
+                        : HttpRequest.BodyPublishers.ofString(GSON.toJson(body), StandardCharsets.UTF_8));
+        if (authToken != null) {
+            try {
+                builder.header("authorization", authToken);
+            } catch (IllegalArgumentException exception) {
+                throw responseError(401, method, path);
+            }
+        }
         HttpResponse<String> response;
         try {
-            response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            response = HTTP_CLIENT.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new ClientException(ClientException.Kind.INTERRUPTED, "The request was interrupted.", exception);
@@ -56,7 +78,10 @@ public class ServerFacade {
         }
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw responseError(response.statusCode());
+            throw responseError(response.statusCode(), method, path);
+        }
+        if (responseType == Void.class) {
+            return null;
         }
         try {
             T result = GSON.fromJson(response.body(), responseType);
@@ -69,7 +94,10 @@ public class ServerFacade {
         }
     }
 
-    private ClientException responseError(int statusCode) {
+    private ClientException responseError(int statusCode, String method, String path) {
+        if (statusCode == 401 && "POST".equals(method) && "/session".equals(path)) {
+            return new ClientException(ClientException.Kind.UNAUTHORIZED, "Incorrect username or password.");
+        }
         return switch (statusCode) {
             case 400 -> new ClientException(ClientException.Kind.BAD_REQUEST, "Please check the details and try again.");
             case 401 -> new ClientException(ClientException.Kind.UNAUTHORIZED, "Please log in and try again.");
@@ -115,5 +143,8 @@ public class ServerFacade {
     }
 
     private record RegisterRequest(String username, String password, String email) {
+    }
+
+    private record LoginRequest(String username, String password) {
     }
 }

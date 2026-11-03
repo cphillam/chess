@@ -26,6 +26,8 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -132,6 +134,119 @@ public class ServerFacadeTests {
                 Arguments.of("alice", "secret", " "));
     }
 
+    @Test
+    public void loginReturnsANewUsableSession() throws ClientException {
+        AuthData registered = facade.register("alice", "secret", "alice@example.com");
+
+        AuthData loggedIn = facade.login("alice", "secret");
+
+        assertEquals("alice", loggedIn.username());
+        assertNotNull(loggedIn.authToken());
+        assertFalse(loggedIn.authToken().isBlank());
+        assertNotEquals(registered.authToken(), loggedIn.authToken());
+        assertDoesNotThrow(() -> facade.logout(loggedIn.authToken()));
+        assertDoesNotThrow(() -> facade.logout(registered.authToken()));
+    }
+
+    @Test
+    public void loginPreservesSpecialCharactersInCredentials() throws ClientException {
+        String username = "Échecs O'Brien ♟";
+        String password = "quoted \"password\" with \\ spaces";
+        facade.register(username, password, "alice@example.com");
+
+        AuthData auth = facade.login(username, password);
+
+        assertEquals(username, auth.username());
+        assertDoesNotThrow(() -> facade.logout(auth.authToken()));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"alice, wrong-password", "missing-user, secret"})
+    public void invalidCredentialsHaveTheSameFriendlyError(String username, String password) throws ClientException {
+        AuthData existingSession = facade.register("alice", "secret", "alice@example.com");
+
+        ClientException error = assertThrows(ClientException.class, () -> facade.login(username, password));
+
+        assertEquals(ClientException.Kind.UNAUTHORIZED, error.getKind());
+        assertEquals("Incorrect username or password.", error.getMessage());
+        assertDoesNotThrow(() -> facade.logout(existingSession.authToken()));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidLoginCredentials")
+    public void missingLoginFieldsAreReported(String username, String password) {
+        ClientException error = assertThrows(ClientException.class, () -> facade.login(username, password));
+
+        assertEquals(ClientException.Kind.BAD_REQUEST, error.getKind());
+        assertEquals("Please check the details and try again.", error.getMessage());
+    }
+
+    static Stream<Arguments> invalidLoginCredentials() {
+        return Stream.of(null, "", " ").flatMap(value -> Stream.of(
+                Arguments.of(value, "secret"), Arguments.of("alice", value)));
+    }
+
+    @Test
+    public void logoutRevokesOnlyTheSuppliedSessionAndAllowsLoggingInAgain() throws ClientException {
+        AuthData registered = facade.register("alice", "secret", "alice@example.com");
+        AuthData anotherSession = facade.login("alice", "secret");
+        AuthData otherUser = facade.register("bob", "secret", "bob@example.com");
+
+        facade.logout(registered.authToken());
+
+        ClientException error = assertThrows(ClientException.class, () -> facade.logout(registered.authToken()));
+        assertEquals(ClientException.Kind.UNAUTHORIZED, error.getKind());
+        assertEquals("Please log in and try again.", error.getMessage());
+        assertDoesNotThrow(() -> facade.logout(anotherSession.authToken()));
+        assertDoesNotThrow(() -> facade.logout(otherUser.authToken()));
+        AuthData newSession = facade.login("alice", "secret");
+        assertNotEquals(registered.authToken(), newSession.authToken());
+        assertDoesNotThrow(() -> facade.logout(newSession.authToken()));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "not-a-session", "private\r\ninjected-header: value", "♟"})
+    public void logoutRejectsMissingInvalidOrUnsafeTokens(String token) {
+        ClientException error = assertThrows(ClientException.class, () -> facade.logout(token));
+
+        assertEquals(ClientException.Kind.UNAUTHORIZED, error.getKind());
+        assertEquals("Please log in and try again.", error.getMessage());
+    }
+
+    @Test
+    public void logoutSendsTheTokenInTheHeaderWithNoRequestBody() throws Exception {
+        AtomicReference<List<String>> received = new AtomicReference<>();
+        ServerFacade loggingOut = stubFacade(exchange -> {
+            received.set(List.of(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
+                    exchange.getRequestHeaders().getFirst("authorization"),
+                    new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+        });
+
+        assertDoesNotThrow(() -> loggingOut.logout("session-token"));
+        assertEquals(List.of("DELETE", "/session", "session-token", ""), received.get());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", ""})
+    public void logoutAcceptsSuccessfulResponsesWithoutAResult(String body) throws Exception {
+        ServerFacade loggingOut = responseFacade(200, body);
+
+        assertDoesNotThrow(() -> loggingOut.logout("session-token"));
+    }
+
+    @Test
+    public void logoutDoesNotTreatServerFailuresAsSuccess() throws Exception {
+        ServerFacade failing = responseFacade(500, "{\"message\":\"private session-token\"}");
+
+        ClientException error = assertThrows(ClientException.class, () -> failing.logout("session-token"));
+
+        assertEquals(ClientException.Kind.SERVER_ERROR, error.getKind());
+        assertEquals("The server could not complete your request. Please try again.", error.getMessage());
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {-1, 0, 65536})
     public void invalidPortsAreRejected(int port) {
@@ -172,19 +287,28 @@ public class ServerFacadeTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {
-            "not-json", "null", "", "[]", "{}", "{\"username\":\"alice\"}", "{\"authToken\":\"token\"}",
-            "{\"username\":\"alice\",\"authToken\":\"\"}", "{\"username\":\" \",\"authToken\":\"token\"}",
-            "{\"username\":\"alice\",\"authToken\":{}}"
-    })
-    public void malformedSuccessResponsesAreReportedSafely(String body) throws Exception {
+    @MethodSource("invalidAuthenticationResponses")
+    public void malformedSuccessResponsesAreReportedSafely(boolean login, String body) throws Exception {
         ServerFacade malformed = responseFacade(200, body);
 
-        ClientException error = assertThrows(ClientException.class,
-                () -> malformed.register("alice", "secret", "alice@example.com"));
+        ClientException error = assertThrows(ClientException.class, () -> {
+            if (login) {
+                malformed.login("alice", "secret");
+            } else {
+                malformed.register("alice", "secret", "alice@example.com");
+            }
+        });
 
         assertEquals(ClientException.Kind.INVALID_RESPONSE, error.getKind());
         assertEquals("The server returned an invalid response. Please try again.", error.getMessage());
+    }
+
+    static Stream<Arguments> invalidAuthenticationResponses() {
+        return Stream.of(
+                "not-json", "null", "", "[]", "{}", "{\"username\":\"alice\"}", "{\"authToken\":\"token\"}",
+                "{\"username\":\"alice\",\"authToken\":\"\"}", "{\"username\":\" \",\"authToken\":\"token\"}",
+                "{\"username\":\"alice\",\"authToken\":{}}")
+                .flatMap(body -> Stream.of(Arguments.of(false, body), Arguments.of(true, body)));
     }
 
     @Test
@@ -243,7 +367,7 @@ public class ServerFacadeTests {
 
     private ServerFacade stubFacade(HttpHandler handler) throws IOException {
         stubServer = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-        stubServer.createContext("/user", handler);
+        stubServer.createContext("/", handler);
         stubServer.start();
         return new ServerFacade(stubServer.getAddress().getPort());
     }
