@@ -11,6 +11,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 public class ServerFacade {
     private static final Gson GSON = new Gson();
@@ -38,10 +41,44 @@ public class ServerFacade {
     }
 
     public void logout(String authToken) throws ClientException {
-        if (authToken == null || authToken.isBlank()) {
-            throw responseError(401, "DELETE", "/session");
+        sendAuthorized("DELETE", "/session", null, authToken, Void.class);
+    }
+
+    public int createGame(String gameName, String authToken) throws ClientException {
+        CreateGameResponse response = sendAuthorized("POST", "/game", new CreateGameRequest(gameName),
+                authToken, CreateGameResponse.class);
+        if (response.gameID() <= 0) {
+            throw invalidResponse(null);
         }
-        send("DELETE", "/session", null, authToken, Void.class);
+        return response.gameID();
+    }
+
+    public List<GameSummary> listGames(String authToken) throws ClientException {
+        ListGamesResponse response = sendAuthorized("GET", "/game", null, authToken, ListGamesResponse.class);
+        if (response.games() == null) {
+            throw invalidResponse(null);
+        }
+        Set<Integer> gameIDs = new HashSet<>();
+        for (GameSummary game : response.games()) {
+            if (invalidSummary(game) || !gameIDs.add(game.gameID())) {
+                throw invalidResponse(null);
+            }
+        }
+        return List.copyOf(response.games());
+    }
+
+    private boolean invalidSummary(GameSummary game) {
+        return game == null || game.gameID() <= 0 || game.gameName() == null || game.gameName().isBlank()
+                || (game.whiteUsername() != null && game.whiteUsername().isBlank())
+                || (game.blackUsername() != null && game.blackUsername().isBlank());
+    }
+
+    private <T> T sendAuthorized(String method, String path, Object body, String authToken, Class<T> responseType)
+            throws ClientException {
+        if (authToken == null || authToken.isBlank()) {
+            throw responseError(401, method, path);
+        }
+        return send(method, path, body, authToken, responseType);
     }
 
     private AuthData authenticate(String path, Object credentials) throws ClientException {
@@ -101,7 +138,8 @@ public class ServerFacade {
         return switch (statusCode) {
             case 400 -> new ClientException(ClientException.Kind.BAD_REQUEST, "Please check the details and try again.");
             case 401 -> new ClientException(ClientException.Kind.UNAUTHORIZED, "Please log in and try again.");
-            case 403 -> new ClientException(ClientException.Kind.ALREADY_TAKEN, "That username is already taken.");
+            case 403 -> new ClientException(ClientException.Kind.ALREADY_TAKEN,
+                    "/user".equals(path) ? "That username is already taken." : "That action is not allowed.");
             default -> new ClientException(ClientException.Kind.SERVER_ERROR,
                     "The server could not complete your request. Please try again.");
         };
@@ -146,5 +184,14 @@ public class ServerFacade {
     }
 
     private record LoginRequest(String username, String password) {
+    }
+
+    private record CreateGameRequest(String gameName) {
+    }
+
+    private record CreateGameResponse(int gameID) {
+    }
+
+    private record ListGamesResponse(List<GameSummary> games) {
     }
 }

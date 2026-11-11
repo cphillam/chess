@@ -1,77 +1,27 @@
 package client;
 
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpServer;
 import model.AuthData;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
-import server.Server;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class ServerFacadeTests {
-    private static Server server;
-    private static URI serverURL;
-    private static ServerFacade facade;
-    private HttpServer stubServer;
-
-    @BeforeAll
-    public static void init() {
-        server = new Server();
-        int port = server.run(0);
-        serverURL = URI.create("http://localhost:" + port);
-        facade = new ServerFacade(port);
-    }
-
-    @BeforeEach
-    public void clearDatabase() throws Exception {
-        try (HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build()) {
-            HttpRequest request = HttpRequest.newBuilder(serverURL.resolve("/db"))
-                    .timeout(Duration.ofSeconds(5))
-                    .DELETE()
-                    .build();
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            assertEquals(200, response.statusCode(), "Unable to clear the test database");
-        }
-    }
-
-    @AfterAll
-    public static void stopServer() {
-        if (server != null) {
-            server.stop();
-        }
-    }
-
-    @AfterEach
-    public void stopStubServer() {
-        if (stubServer != null) {
-            stubServer.stop(0);
-        }
-    }
-
+public class ServerFacadeTests extends ServerFacadeTestSupport {
     @Test
     public void registerReturnsUsernameAndAuthenticationToken() throws ClientException {
         AuthData auth = facade.register("alice", "secret", "alice@example.com");
@@ -121,19 +71,6 @@ public class ServerFacadeTests {
         assertEquals("Please check the details and try again.", error.getMessage());
     }
 
-    static Stream<Arguments> invalidRegistrations() {
-        return Stream.of(
-                Arguments.of(null, "secret", "alice@example.com"),
-                Arguments.of("", "secret", "alice@example.com"),
-                Arguments.of(" ", "secret", "alice@example.com"),
-                Arguments.of("alice", null, "alice@example.com"),
-                Arguments.of("alice", "", "alice@example.com"),
-                Arguments.of("alice", " ", "alice@example.com"),
-                Arguments.of("alice", "secret", null),
-                Arguments.of("alice", "secret", ""),
-                Arguments.of("alice", "secret", " "));
-    }
-
     @Test
     public void loginReturnsANewUsableSession() throws ClientException {
         AuthData registered = facade.register("alice", "secret", "alice@example.com");
@@ -179,11 +116,6 @@ public class ServerFacadeTests {
 
         assertEquals(ClientException.Kind.BAD_REQUEST, error.getKind());
         assertEquals("Please check the details and try again.", error.getMessage());
-    }
-
-    static Stream<Arguments> invalidLoginCredentials() {
-        return Stream.of(null, "", " ").flatMap(value -> Stream.of(
-                Arguments.of(value, "secret"), Arguments.of("alice", value)));
     }
 
     @Test
@@ -303,14 +235,6 @@ public class ServerFacadeTests {
         assertEquals("The server returned an invalid response. Please try again.", error.getMessage());
     }
 
-    static Stream<Arguments> invalidAuthenticationResponses() {
-        return Stream.of(
-                "not-json", "null", "", "[]", "{}", "{\"username\":\"alice\"}", "{\"authToken\":\"token\"}",
-                "{\"username\":\"alice\",\"authToken\":\"\"}", "{\"username\":\" \",\"authToken\":\"token\"}",
-                "{\"username\":\"alice\",\"authToken\":{}}")
-                .flatMap(body -> Stream.of(Arguments.of(false, body), Arguments.of(true, body)));
-    }
-
     @Test
     public void closingTheConnectionWithoutAResponseIsReportedSafely() throws Exception {
         ServerFacade disconnected = stubFacade(exchange -> exchange.close());
@@ -352,23 +276,130 @@ public class ServerFacadeTests {
         }
     }
 
-    private ServerFacade responseFacade(int status, String body) throws IOException {
-        return stubFacade(exchange -> {
-            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(status, bytes.length);
-            try (var output = exchange.getResponseBody()) {
-                output.write(bytes);
-            } finally {
-                exchange.close();
-            }
-        });
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 3})
+    public void createdGamesAppearInTheListingWithOpenSeats(int count) throws ClientException {
+        AuthData auth = facade.register("alice", "secret", "alice@example.com");
+        List<GameSummary> expected = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            String name = "Friday ♟ \"Finals\" \\ Round " + index;
+            int gameID = facade.createGame(name, auth.authToken());
+            assertTrue(gameID > 0);
+            expected.add(new GameSummary(gameID, null, null, name));
+        }
+
+        List<GameSummary> games = facade.listGames(auth.authToken());
+
+        assertEquals(count, games.size());
+        assertEquals(Set.copyOf(expected), Set.copyOf(games));
     }
 
-    private ServerFacade stubFacade(HttpHandler handler) throws IOException {
-        stubServer = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-        stubServer.createContext("/", handler);
-        stubServer.start();
-        return new ServerFacade(stubServer.getAddress().getPort());
+    @Test
+    public void listingsIncludePlayersAndGamesCreatedByOtherUsers() throws Exception {
+        AuthData alice = facade.register("Alice Smith", "secret", "alice@example.com");
+        AuthData bob = facade.register("Échecs♟", "secret", "bob@example.com");
+        int gameID = facade.createGame("Final", alice.authToken());
+        joinAsPlayer(gameID, "WHITE", alice.authToken());
+        joinAsPlayer(gameID, "BLACK", bob.authToken());
+
+        List<GameSummary> games = facade.listGames(bob.authToken());
+
+        assertEquals(List.of(new GameSummary(gameID, "Alice Smith", "Échecs♟", "Final")), games);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "\t"})
+    public void invalidGameNamesAreRejectedWithoutCreatingGames(String name) throws ClientException {
+        AuthData auth = facade.register("alice", "secret", "alice@example.com");
+
+        ClientException error = assertThrows(ClientException.class, () -> facade.createGame(name, auth.authToken()));
+
+        assertEquals(ClientException.Kind.BAD_REQUEST, error.getKind());
+        assertEquals("Please check the details and try again.", error.getMessage());
+        assertTrue(facade.listGames(auth.authToken()).isEmpty());
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidGameSessions")
+    public void gameOperationsRejectMissingInvalidOrUnsafeSessions(boolean create, String token) {
+        ClientException error = assertThrows(ClientException.class, () -> requestGameOperation(facade, create, token));
+
+        assertEquals(ClientException.Kind.UNAUTHORIZED, error.getKind());
+        assertEquals("Please log in and try again.", error.getMessage());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void loggedOutSessionsCannotCreateOrListGames(boolean create) throws ClientException {
+        AuthData auth = facade.register("alice", "secret", "alice@example.com");
+        facade.logout(auth.authToken());
+
+        ClientException error = assertThrows(ClientException.class, () -> requestGameOperation(facade, create, auth.authToken()));
+
+        assertEquals(ClientException.Kind.UNAUTHORIZED, error.getKind());
+    }
+
+    @Test
+    public void gameOperationsUseAuthorizationHeadersAndTheCorrectRequestBodies() throws Exception {
+        List<List<String>> received = new CopyOnWriteArrayList<>();
+        ServerFacade configured = stubFacade(exchange -> {
+            String method = exchange.getRequestMethod();
+            received.add(List.of(method, exchange.getRequestURI().toString(), exchange.getRequestHeaders().getFirst("authorization"),
+                    new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
+            respond(exchange, 200, "POST".equals(method) ? "{\"gameID\":73}"
+                    : "{\"games\":[{\"gameID\":73,\"whiteUsername\":\"Alice\",\"gameName\":\"Friday Night Chess\"}]}");
+        });
+
+        assertEquals(73, configured.createGame("Friday Night Chess", "private-token"));
+        assertEquals(List.of(new GameSummary(73, "Alice", null, "Friday Night Chess")), configured.listGames("private-token"));
+        assertEquals(List.of(
+                List.of("POST", "/game", "private-token", "{\"gameName\":\"Friday Night Chess\"}"),
+                List.of("GET", "/game", "private-token", "")), received);
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidGameResponses")
+    public void malformedGameResponsesAreReportedSafely(boolean create, String body) throws Exception {
+        ServerFacade malformed = responseFacade(200, body);
+
+        ClientException error = assertThrows(ClientException.class, () -> requestGameOperation(malformed, create, "private-token"));
+
+        assertEquals(ClientException.Kind.INVALID_RESPONSE, error.getKind());
+        assertEquals("The server returned an invalid response. Please try again.", error.getMessage());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true, 400, BAD_REQUEST", "false, 400, BAD_REQUEST", "true, 401, UNAUTHORIZED", "false, 401, UNAUTHORIZED",
+            "true, 403, ALREADY_TAKEN", "false, 403, ALREADY_TAKEN", "true, 500, SERVER_ERROR", "false, 500, SERVER_ERROR"})
+    public void gameServerErrorsDoNotExposePrivateOrUnrelatedDetails(boolean create, int status, ClientException.Kind kind)
+            throws Exception {
+        ServerFacade failing = responseFacade(status, "{\"message\":\"private database error\"}");
+
+        ClientException error = assertThrows(ClientException.class, () -> requestGameOperation(failing, create, "private-token"));
+
+        assertEquals(kind, error.getKind());
+        assertFalse(error.getMessage().contains("private"));
+        assertFalse(error.getMessage().contains("username"));
+        assertFalse(error.getMessage().contains(Integer.toString(status)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void disconnectedGameRequestsHaveAFriendlyError(boolean create) throws Exception {
+        ServerFacade disconnected = stubFacade(exchange -> exchange.close());
+
+        ClientException error = assertThrows(ClientException.class, () -> requestGameOperation(disconnected, create, "private-token"));
+
+        assertEquals(ClientException.Kind.CONNECTION_ERROR, error.getKind());
+        assertEquals("Unable to contact the server. Please try again.", error.getMessage());
+    }
+
+    private void requestGameOperation(ServerFacade target, boolean create, String token) throws ClientException {
+        if (create) {
+            target.createGame("Friday Night Chess", token);
+        } else {
+            target.listGames(token);
+        }
     }
 }
