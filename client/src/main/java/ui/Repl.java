@@ -25,7 +25,7 @@ public class Repl {
     public void run() {
         output.println("Welcome to 240 Chess! Type help to see available commands.");
         while (true) {
-            String line = readLine("chess> ");
+            String line = readLine(handler.prompt());
             if (line == null) {
                 break;
             }
@@ -39,6 +39,10 @@ public class Repl {
                 output.println(exception.getMessage());
                 continue;
             }
+            if (!handler.availableCommands().contains(command.type())) {
+                output.println("That command is unavailable here. Type help to see available commands.");
+                continue;
+            }
             if (command.type() == Command.Type.QUIT) {
                 break;
             }
@@ -48,6 +52,7 @@ public class Repl {
                 break;
             }
         }
+        handler.exit();
         output.println("Goodbye!");
         output.flush();
     }
@@ -100,15 +105,26 @@ public class Repl {
     }
 
     private void printHelp() {
-        for (Command.Type type : Command.Type.values()) {
+        for (Command.Type type : handler.availableCommands()) {
             output.println("  " + type.usage() + " - " + type.description());
         }
         output.println("Enter a command without arguments to be prompted for its fields.");
-        output.println("Use double quotes around fields containing spaces, such as login \"Alice Smith\" \"my password\".");
+        output.println("Use double quotes around fields containing spaces.");
     }
 
     @FunctionalInterface
     public interface CommandHandler {
         String execute(Command command) throws ClientException;
+
+        default List<Command.Type> availableCommands() {
+            return List.of(Command.Type.values());
+        }
+
+        default String prompt() {
+            return "chess> ";
+        }
+
+        default void exit() {
+        }
     }
 }
