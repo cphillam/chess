@@ -1,6 +1,5 @@
 package client;
 
-import model.AuthData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -13,14 +12,13 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class ChessClientTests {
-    private final AuthFacadeStub facade = new AuthFacadeStub();
+    private final ClientFacadeStub facade = new ClientFacadeStub();
     private final ChessClient client = new ChessClient(facade);
 
     @Test
@@ -254,45 +252,5 @@ public class ChessClientTests {
         StringWriter transcript = new StringWriter();
         new Repl(new StringReader(input), new PrintWriter(transcript), client).run();
         return transcript.toString();
-    }
-
-    private static class AuthFacadeStub extends ServerFacade {
-        private final List<Command> authRequests = new ArrayList<>();
-        private final List<String> logoutTokens = new ArrayList<>();
-        private ClientException nextFailure;
-
-        AuthFacadeStub() {
-            super(8080);
-        }
-
-        @Override
-        public AuthData register(String username, String password, String email) throws ClientException {
-            return authenticate(new Command(Command.Type.REGISTER, List.of(username, password, email)));
-        }
-
-        @Override
-        public AuthData login(String username, String password) throws ClientException {
-            return authenticate(new Command(Command.Type.LOGIN, List.of(username, password)));
-        }
-
-        private AuthData authenticate(Command command) throws ClientException {
-            authRequests.add(command);
-            failIfRequested();
-            return new AuthData("private-" + command.type() + "-token", command.arguments().getFirst());
-        }
-
-        @Override
-        public void logout(String authToken) throws ClientException {
-            logoutTokens.add(authToken);
-            failIfRequested();
-        }
-
-        private void failIfRequested() throws ClientException {
-            if (nextFailure != null) {
-                ClientException failure = nextFailure;
-                nextFailure = null;
-                throw failure;
-            }
-        }
     }
 }
