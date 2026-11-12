@@ -1,5 +1,6 @@
 package client;
 
+import com.google.gson.JsonParser;
 import model.AuthData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -149,13 +150,7 @@ public class ServerFacadeTests extends ServerFacadeTestSupport {
     @Test
     public void logoutSendsTheTokenInTheHeaderWithNoRequestBody() throws Exception {
         AtomicReference<List<String>> received = new AtomicReference<>();
-        ServerFacade loggingOut = stubFacade(exchange -> {
-            received.set(List.of(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
-                    exchange.getRequestHeaders().getFirst("authorization"),
-                    new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
-            exchange.sendResponseHeaders(204, -1);
-            exchange.close();
-        });
+        ServerFacade loggingOut = recordingNoContentFacade(received);
 
         assertDoesNotThrow(() -> loggingOut.logout("session-token"));
         assertEquals(List.of("DELETE", "/session", "session-token", ""), received.get());
@@ -393,6 +388,89 @@ public class ServerFacadeTests extends ServerFacadeTestSupport {
 
         assertEquals(ClientException.Kind.CONNECTION_ERROR, error.getKind());
         assertEquals("Unable to contact the server. Please try again.", error.getMessage());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"WHITE", "BLACK"})
+    public void joiningAndRejectingAnOccupiedSeatPreserveBothPlayers(String color) throws ClientException {
+        AuthData alice = facade.register("alice", "secret", "alice@example.com");
+        AuthData bob = facade.register("bob", "secret", "bob@example.com");
+        int gameID = facade.createGame("Final", alice.authToken());
+        boolean white = "WHITE".equals(color);
+
+        facade.joinGame(gameID, color, alice.authToken());
+        assertEquals(List.of(new GameSummary(gameID, white ? "alice" : null, white ? null : "alice", "Final")),
+                facade.listGames(alice.authToken()));
+        ClientException error = assertThrows(ClientException.class, () -> facade.joinGame(gameID, color, bob.authToken()));
+        assertEquals(ClientException.Kind.ALREADY_TAKEN, error.getKind());
+        assertEquals("That seat is already taken.", error.getMessage());
+
+        facade.joinGame(gameID, white ? "BLACK" : "WHITE", bob.authToken());
+        assertEquals(List.of(new GameSummary(gameID, white ? "alice" : "bob", white ? "bob" : "alice", "Final")),
+                facade.listGames(bob.authToken()));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidJoinRequests")
+    public void invalidJoinRequestsCannotClaimASeat(Integer gameIDOverride, String color) throws ClientException {
+        AuthData auth = facade.register("alice", "secret", "alice@example.com");
+        int gameID = facade.createGame("Final", auth.authToken());
+        int requestedID = gameIDOverride == null ? gameID : gameIDOverride;
+
+        ClientException error = assertThrows(ClientException.class, () -> facade.joinGame(requestedID, color, auth.authToken()));
+
+        assertEquals(ClientException.Kind.BAD_REQUEST, error.getKind());
+        assertEquals("Please check the details and try again.", error.getMessage());
+        assertEquals(List.of(new GameSummary(gameID, null, null, "Final")), facade.listGames(auth.authToken()));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "not-a-session", "private\r\ninjected-header: value", "♟"})
+    public void unauthorizedJoinsCannotClaimASeat(String token) throws ClientException {
+        AuthData auth = facade.register("alice", "secret", "alice@example.com");
+        int gameID = facade.createGame("Final", auth.authToken());
+
+        ClientException error = assertThrows(ClientException.class, () -> facade.joinGame(gameID, "WHITE", token));
+
+        assertEquals(ClientException.Kind.UNAUTHORIZED, error.getKind());
+        assertEquals("Please log in and try again.", error.getMessage());
+        assertEquals(List.of(new GameSummary(gameID, null, null, "Final")), facade.listGames(auth.authToken()));
+    }
+
+    @Test
+    public void loggedOutSessionsCannotJoinAGame() throws ClientException {
+        AuthData auth = facade.register("alice", "secret", "alice@example.com");
+        int gameID = facade.createGame("Final", auth.authToken());
+        facade.logout(auth.authToken());
+
+        ClientException error = assertThrows(ClientException.class, () -> facade.joinGame(gameID, "WHITE", auth.authToken()));
+
+        assertEquals(ClientException.Kind.UNAUTHORIZED, error.getKind());
+    }
+
+    @Test
+    public void joiningUsesTheCorrectJSONAndAuthorizationHeaderAndAcceptsNoContent() throws Exception {
+        AtomicReference<List<String>> received = new AtomicReference<>();
+        ServerFacade joining = recordingNoContentFacade(received);
+
+        joining.joinGame(4021, "BLACK", "private-token");
+
+        assertEquals(List.of("PUT", "/game", "private-token"), received.get().subList(0, 3));
+        assertEquals(JsonParser.parseString("{\"playerColor\":\"BLACK\",\"gameID\":4021}"),
+                JsonParser.parseString(received.get().get(3)));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"400, BAD_REQUEST", "401, UNAUTHORIZED", "403, ALREADY_TAKEN", "500, SERVER_ERROR"})
+    public void joinErrorsDoNotExposeServerDetails(int status, ClientException.Kind kind) throws Exception {
+        ServerFacade failing = responseFacade(status, "{\"message\":\"private database error\"}");
+
+        ClientException error = assertThrows(ClientException.class, () -> failing.joinGame(4021, "WHITE", "private-token"));
+
+        assertEquals(kind, error.getKind());
+        assertFalse(error.getMessage().contains("private"));
+        assertFalse(error.getMessage().contains(Integer.toString(status)));
     }
 
     private void requestGameOperation(ServerFacade target, boolean create, String token) throws ClientException {

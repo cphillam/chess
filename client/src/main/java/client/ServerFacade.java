@@ -67,6 +67,10 @@ public class ServerFacade {
         return List.copyOf(response.games());
     }
 
+    public void joinGame(int gameID, String teamColor, String authToken) throws ClientException {
+        sendAuthorized("PUT", "/game", new JoinGameRequest(teamColor, gameID), authToken, Void.class);
+    }
+
     private boolean invalidSummary(GameSummary game) {
         return game == null || game.gameID() <= 0 || game.gameName() == null || game.gameName().isBlank()
                 || (game.whiteUsername() != null && game.whiteUsername().isBlank())
@@ -135,6 +139,9 @@ public class ServerFacade {
         if (statusCode == 401 && "POST".equals(method) && "/session".equals(path)) {
             return new ClientException(ClientException.Kind.UNAUTHORIZED, "Incorrect username or password.");
         }
+        if (statusCode == 403 && "PUT".equals(method) && "/game".equals(path)) {
+            return new ClientException(ClientException.Kind.ALREADY_TAKEN, "That seat is already taken.");
+        }
         return switch (statusCode) {
             case 400 -> new ClientException(ClientException.Kind.BAD_REQUEST, "Please check the details and try again.");
             case 401 -> new ClientException(ClientException.Kind.UNAUTHORIZED, "Please log in and try again.");
@@ -193,5 +200,8 @@ public class ServerFacade {
     }
 
     private record ListGamesResponse(List<GameSummary> games) {
+    }
+
+    private record JoinGameRequest(String playerColor, int gameID) {
     }
 }

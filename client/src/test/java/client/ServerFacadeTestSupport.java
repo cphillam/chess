@@ -20,6 +20,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -96,6 +99,24 @@ abstract class ServerFacadeTestSupport {
         stubServer.createContext("/", handler);
         stubServer.start();
         return new ServerFacade(stubServer.getAddress().getPort());
+    }
+
+    protected ServerFacade recordingNoContentFacade(AtomicReference<List<String>> received) throws IOException {
+        return stubFacade(exchange -> {
+            received.set(List.of(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
+                    exchange.getRequestHeaders().getFirst("authorization"),
+                    new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+        });
+    }
+
+    protected static Stream<Arguments> invalidJoinRequests() {
+        Stream<Arguments> invalidIDs = IntStream.of(-1, 0, Integer.MAX_VALUE)
+                .mapToObj(gameID -> Arguments.of(gameID, "WHITE"));
+        Stream<Arguments> invalidColors = Stream.of(null, "", " ", "white", "RED", "OBSERVER")
+                .map(color -> Arguments.of(null, color));
+        return Stream.concat(invalidIDs, invalidColors);
     }
 
     protected static Stream<Arguments> invalidRegistrations() {
