@@ -36,7 +36,7 @@ public class ChessClient implements Repl.CommandHandler {
         return switch (state) {
             case SIGNED_OUT -> List.of(Command.Type.HELP, Command.Type.QUIT, Command.Type.REGISTER, Command.Type.LOGIN);
             case SIGNED_IN -> List.of(Command.Type.HELP, Command.Type.QUIT, Command.Type.LOGOUT,
-                    Command.Type.CREATE, Command.Type.LIST, Command.Type.PLAY);
+                    Command.Type.CREATE, Command.Type.LIST, Command.Type.PLAY, Command.Type.OBSERVE);
             case BOARD_PREVIEW -> List.of(Command.Type.HELP, Command.Type.BACK, Command.Type.QUIT);
             case QUIT -> List.of();
         };
@@ -89,6 +89,7 @@ public class ChessClient implements Repl.CommandHandler {
             case CREATE -> createGame(arguments.getFirst());
             case LIST -> listGames();
             case PLAY -> play(arguments.get(0), arguments.get(1));
+            case OBSERVE -> observe(arguments.getFirst());
             case BACK -> {
                 state = State.SIGNED_IN;
                 yield "Returned to the lobby.";
@@ -131,12 +132,7 @@ public class ChessClient implements Repl.CommandHandler {
     }
 
     private String play(String gameNumber, String color) throws ClientException {
-        int number;
-        try {
-            number = Integer.parseInt(gameNumber.strip());
-        } catch (NumberFormatException exception) {
-            throw new ClientException(ClientException.Kind.BAD_REQUEST, "Enter a whole game number from the latest list.");
-        }
+        int number = parseGameNumber(gameNumber);
         TeamColor teamColor;
         try {
             teamColor = TeamColor.valueOf(color.strip().toUpperCase(Locale.ROOT));
@@ -147,6 +143,26 @@ public class ChessClient implements Repl.CommandHandler {
         facade.joinGame(game.gameID(), teamColor.name(), session.authToken());
         String colorName = teamColor == TeamColor.WHITE ? "White" : "Black";
         return showPreview("Playing game " + number + " as " + colorName + ".", teamColor);
+    }
+
+    private String observe(String gameNumber) throws ClientException {
+        int number = parseGameNumber(gameNumber);
+        GameSummary selected = gameForNumber(number);
+        boolean available = facade.listGames(session.authToken()).stream()
+                .anyMatch(game -> game.gameID() == selected.gameID());
+        if (!available) {
+            throw new ClientException(ClientException.Kind.BAD_REQUEST,
+                    "That game is no longer available. Run list to refresh the game list.");
+        }
+        return showPreview("Observing game " + number + ". White's perspective.", TeamColor.WHITE);
+    }
+
+    private int parseGameNumber(String gameNumber) throws ClientException {
+        try {
+            return Integer.parseInt(gameNumber.strip());
+        } catch (NumberFormatException exception) {
+            throw new ClientException(ClientException.Kind.BAD_REQUEST, "Enter a whole game number from the latest list.");
+        }
     }
 
     private String showPreview(String heading, TeamColor perspective) {
