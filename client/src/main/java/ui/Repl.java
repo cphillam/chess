@@ -105,11 +105,14 @@ public class Repl {
     }
 
     private void printHelp() {
-        for (Command.Type type : handler.availableCommands()) {
+        List<Command.Type> commands = handler.availableCommands();
+        for (Command.Type type : commands) {
             output.println("  " + type.usage() + " - " + type.description());
         }
-        output.println("Enter a command without arguments to be prompted for its fields.");
-        output.println("Use double quotes around fields containing spaces.");
+        if (commands.stream().anyMatch(type -> !type.fields().isEmpty())) {
+            output.println("Enter a command without arguments to be prompted for its fields.");
+            output.println("Use double quotes around fields containing spaces.");
+        }
     }
 
     @FunctionalInterface

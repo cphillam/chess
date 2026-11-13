@@ -10,6 +10,7 @@ class ClientFacadeStub extends ServerFacade {
     final List<String> logoutTokens = new ArrayList<>();
     final List<GameCreation> createdGames = new ArrayList<>();
     final List<String> listTokens = new ArrayList<>();
+    final List<GameJoin> joinedGames = new ArrayList<>();
     ClientException nextFailure;
     List<GameSummary> games = List.of();
     int createdGameID = 9001;
@@ -54,6 +55,12 @@ class ClientFacadeStub extends ServerFacade {
         return games;
     }
 
+    @Override
+    public void joinGame(int gameID, String teamColor, String authToken) throws ClientException {
+        joinedGames.add(new GameJoin(gameID, teamColor, authToken));
+        failIfRequested();
+    }
+
     private void failIfRequested() throws ClientException {
         if (nextFailure != null) {
             ClientException failure = nextFailure;
@@ -63,5 +70,8 @@ class ClientFacadeStub extends ServerFacade {
     }
 
     record GameCreation(String gameName, String authToken) {
+    }
+
+    record GameJoin(int gameID, String teamColor, String authToken) {
     }
 }

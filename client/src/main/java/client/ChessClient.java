@@ -1,15 +1,20 @@
 package client;
 
+import chess.ChessBoard;
+import chess.ChessGame.TeamColor;
 import model.AuthData;
+import ui.BoardRenderer;
 import ui.LobbyRenderer;
 import ui.Repl;
 
 import java.util.List;
+import java.util.Locale;
 
 public class ChessClient implements Repl.CommandHandler {
     public enum State {
         SIGNED_OUT,
         SIGNED_IN,
+        BOARD_PREVIEW,
         QUIT
     }
 
@@ -30,7 +35,9 @@ public class ChessClient implements Repl.CommandHandler {
     public List<Command.Type> availableCommands() {
         return switch (state) {
             case SIGNED_OUT -> List.of(Command.Type.HELP, Command.Type.QUIT, Command.Type.REGISTER, Command.Type.LOGIN);
-            case SIGNED_IN -> List.of(Command.Type.HELP, Command.Type.QUIT, Command.Type.LOGOUT, Command.Type.CREATE, Command.Type.LIST);
+            case SIGNED_IN -> List.of(Command.Type.HELP, Command.Type.QUIT, Command.Type.LOGOUT,
+                    Command.Type.CREATE, Command.Type.LIST, Command.Type.PLAY);
+            case BOARD_PREVIEW -> List.of(Command.Type.HELP, Command.Type.BACK, Command.Type.QUIT);
             case QUIT -> List.of();
         };
     }
@@ -40,6 +47,7 @@ public class ChessClient implements Repl.CommandHandler {
         return switch (state) {
             case SIGNED_OUT -> "signed out> ";
             case SIGNED_IN -> "signed in> ";
+            case BOARD_PREVIEW -> "board preview> ";
             case QUIT -> "";
         };
     }
@@ -80,6 +88,11 @@ public class ChessClient implements Repl.CommandHandler {
             case LOGOUT -> logout();
             case CREATE -> createGame(arguments.getFirst());
             case LIST -> listGames();
+            case PLAY -> play(arguments.get(0), arguments.get(1));
+            case BACK -> {
+                state = State.SIGNED_IN;
+                yield "Returned to the lobby.";
+            }
             case QUIT -> {
                 exit();
                 yield "";
@@ -115,6 +128,34 @@ public class ChessClient implements Repl.CommandHandler {
                     "That game number is not in the latest list. Run list to refresh the game list.");
         }
         return listedGames.get(number - 1);
+    }
+
+    private String play(String gameNumber, String color) throws ClientException {
+        int number;
+        try {
+            number = Integer.parseInt(gameNumber.strip());
+        } catch (NumberFormatException exception) {
+            throw new ClientException(ClientException.Kind.BAD_REQUEST, "Enter a whole game number from the latest list.");
+        }
+        TeamColor teamColor;
+        try {
+            teamColor = TeamColor.valueOf(color.strip().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw new ClientException(ClientException.Kind.BAD_REQUEST, "Choose white or black.");
+        }
+        GameSummary game = gameForNumber(number);
+        facade.joinGame(game.gameID(), teamColor.name(), session.authToken());
+        String colorName = teamColor == TeamColor.WHITE ? "White" : "Black";
+        return showPreview("Playing game " + number + " as " + colorName + ".", teamColor);
+    }
+
+    private String showPreview(String heading, TeamColor perspective) {
+        ChessBoard board = new ChessBoard();
+        board.resetBoard();
+        String preview = heading + System.lineSeparator() + BoardRenderer.render(board, perspective)
+                + System.lineSeparator() + "Use back to return to the lobby or quit to exit.";
+        state = State.BOARD_PREVIEW;
+        return preview;
     }
 
     private void clearSession() {
