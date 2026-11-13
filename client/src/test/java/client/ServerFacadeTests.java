@@ -5,6 +5,7 @@ import model.AuthData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -242,6 +243,20 @@ public class ServerFacadeTests extends ServerFacadeTestSupport {
         assertEquals("Unable to contact the server. Please try again.", error.getMessage());
     }
 
+    @ParameterizedTest
+    @EnumSource(value = Command.Type.class, names = {"REGISTER", "LOGIN", "LOGOUT", "CREATE", "LIST", "PLAY"})
+    public void unavailableServersAreReportedForEveryOperation(Command.Type type) throws Exception {
+        ServerFacade offline;
+        try (ServerSocket listener = new ServerSocket(0)) {
+            offline = new ServerFacade(listener.getLocalPort());
+        }
+
+        ClientException error = assertThrows(ClientException.class, () -> requestOperation(offline, type));
+
+        assertEquals(ClientException.Kind.CONNECTION_ERROR, error.getKind());
+        assertEquals("Unable to contact the server. Please try again.", error.getMessage());
+    }
+
     @Test
     public void anUnresponsiveServerTimesOut() throws Exception {
         try (ServerSocket unresponsive = new ServerSocket(0)) {
@@ -420,7 +435,7 @@ public class ServerFacadeTests extends ServerFacadeTestSupport {
         ClientException error = assertThrows(ClientException.class, () -> facade.joinGame(requestedID, color, auth.authToken()));
 
         assertEquals(ClientException.Kind.BAD_REQUEST, error.getKind());
-        assertEquals("Please check the details and try again.", error.getMessage());
+        assertEquals("Unable to join that game. Run list to refresh the game list and try again.", error.getMessage());
         assertEquals(List.of(new GameSummary(gameID, null, null, "Final")), facade.listGames(auth.authToken()));
     }
 
@@ -473,11 +488,4 @@ public class ServerFacadeTests extends ServerFacadeTestSupport {
         assertFalse(error.getMessage().contains(Integer.toString(status)));
     }
 
-    private void requestGameOperation(ServerFacade target, boolean create, String token) throws ClientException {
-        if (create) {
-            target.createGame("Friday Night Chess", token);
-        } else {
-            target.listGames(token);
-        }
-    }
 }

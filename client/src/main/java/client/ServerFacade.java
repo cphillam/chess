@@ -125,17 +125,17 @@ public class ServerFacade {
             return null;
         }
         try {
-            T result = GSON.fromJson(response.body(), responseType);
-            if (result == null) {
-                throw invalidResponse(null);
-            }
-            return result;
+            return ResponseJson.read(response.body(), responseType);
         } catch (JsonParseException exception) {
             throw invalidResponse(exception);
         }
     }
 
     private ClientException responseError(int statusCode, String method, String path) {
+        if (statusCode == 400 && "PUT".equals(method) && "/game".equals(path)) {
+            return new ClientException(ClientException.Kind.BAD_REQUEST,
+                    "Unable to join that game. Run list to refresh the game list and try again.");
+        }
         if (statusCode == 401 && "POST".equals(method) && "/session".equals(path)) {
             return new ClientException(ClientException.Kind.UNAUTHORIZED, "Incorrect username or password.");
         }

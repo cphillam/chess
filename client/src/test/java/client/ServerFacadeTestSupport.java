@@ -111,6 +111,26 @@ abstract class ServerFacadeTestSupport {
         });
     }
 
+    protected void requestGameOperation(ServerFacade target, boolean create, String token) throws ClientException {
+        if (create) {
+            target.createGame("Friday Night Chess", token);
+        } else {
+            target.listGames(token);
+        }
+    }
+
+    protected void requestOperation(ServerFacade target, Command.Type type) throws ClientException {
+        switch (type) {
+            case REGISTER -> target.register("alice", "secret", "alice@example.com");
+            case LOGIN -> target.login("alice", "secret");
+            case LOGOUT -> target.logout("private-token");
+            case CREATE -> target.createGame("Friday Night Chess", "private-token");
+            case LIST -> target.listGames("private-token");
+            case PLAY -> target.joinGame(4021, "WHITE", "private-token");
+            default -> throw new IllegalArgumentException("Expected a server operation.");
+        }
+    }
+
     protected static Stream<Arguments> invalidJoinRequests() {
         Stream<Arguments> invalidIDs = IntStream.of(-1, 0, Integer.MAX_VALUE)
                 .mapToObj(gameID -> Arguments.of(gameID, "WHITE"));
@@ -141,7 +161,10 @@ abstract class ServerFacadeTestSupport {
         return Stream.of(
                 "not-json", "null", "", "[]", "{}", "{\"username\":\"alice\"}", "{\"authToken\":\"token\"}",
                 "{\"username\":\"alice\",\"authToken\":\"\"}", "{\"username\":\" \",\"authToken\":\"token\"}",
-                "{\"username\":\"alice\",\"authToken\":{}}")
+                "{\"username\":\"alice\",\"authToken\":{}}", "{\"username\":42,\"authToken\":\"token\"}",
+                "{\"username\":\"alice\",\"authToken\":true}", "{username:\"alice\",authToken:\"token\"}",
+                "{'username':'alice','authToken':'token'}", "{\"username\":\"alice\",\"authToken\":\"token\"} {}",
+                "/* comment */ {\"username\":\"alice\",\"authToken\":\"token\"}")
                 .flatMap(body -> Stream.of(Arguments.of(false, body), Arguments.of(true, body)));
     }
 
@@ -155,7 +178,8 @@ abstract class ServerFacadeTestSupport {
                 .flatMap(body -> Stream.of(Arguments.of(false, body), Arguments.of(true, body)));
         Stream<Arguments> creation = Stream.of(
                 "{\"gameID\":null}", "{\"gameID\":0}", "{\"gameID\":-1}", "{\"gameID\":1.5}",
-                "{\"gameID\":\"invalid\"}", "{\"gameID\":{}}")
+                "{\"gameID\":\"invalid\"}", "{\"gameID\":{}}", "{\"gameID\":\"73\"}", "{\"gameID\":true}",
+                "{\"gameID\":4294967297}", "{\"gameID\":1.0000000000000001}")
                 .map(body -> Arguments.of(true, body));
         Stream<Arguments> listing = Stream.of(
                 "{\"games\":null}", "{\"games\":{}}", "{\"games\":[null]}", "{\"games\":[{}]}",
@@ -163,7 +187,13 @@ abstract class ServerFacadeTestSupport {
                 "{\"games\":[{\"gameID\":0,\"gameName\":\"Final\"}]}",
                 "{\"games\":[{\"gameID\":1,\"gameName\":\"Final\",\"whiteUsername\":\"\"}]}",
                 "{\"games\":[{\"gameID\":1,\"gameName\":\"Final\",\"blackUsername\":\" \"}]}",
-                "{\"games\":[{\"gameID\":1,\"gameName\":\"First\"},{\"gameID\":1,\"gameName\":\"Second\"}]}")
+                "{\"games\":[{\"gameID\":1,\"gameName\":\"First\"},{\"gameID\":1,\"gameName\":\"Second\"}]}",
+                "{\"games\":[{\"gameID\":\"73\",\"gameName\":\"Final\"}]}",
+                "{\"games\":[{\"gameID\":4294967297,\"gameName\":\"Final\"}]}",
+                "{\"games\":[{\"gameID\":1,\"gameName\":false}]}",
+                "{\"games\":[{\"gameID\":1,\"gameName\":\"Final\",\"whiteUsername\":42}]}",
+                "{\"games\":[{\"gameID\":1,\"gameName\":\"Final\",\"blackUsername\":false}]}",
+                "{\"games\":[]} private-tail")
                 .map(body -> Arguments.of(false, body));
         return Stream.concat(common, Stream.concat(creation, listing));
     }
